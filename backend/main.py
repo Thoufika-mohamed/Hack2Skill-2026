@@ -6,6 +6,9 @@ from backend.routes.pollution_routes import router as pollution_router
 from backend.routes.reports_routes import router as reports_router
 from backend.routes.ai_routes import router as ai_router
 from backend.routes.hotspot_routes import router as hotspot_router
+from dotenv import load_dotenv
+
+load_dotenv("backend/.env")
 
 
 app = FastAPI(title="Hack2Skill Backend")

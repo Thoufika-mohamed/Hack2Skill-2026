@@ -4,7 +4,8 @@ from backend.models.report_model import PollutionReport, ReportResponse
 from backend.services.report_service import (
     process_report,
     get_all_reports,
-    get_report_by_id
+    get_report_by_id,
+    update_report_status
 )
 
 
@@ -25,6 +26,24 @@ def get_reports():
 def get_single_report(report_id: int):
 
     report = get_report_by_id(report_id)
+
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Report not found"
+        )
+
+    return report
+@router.patch("/reports/{report_id}/status", response_model=ReportResponse)
+def update_status(
+    report_id: int,
+    status: str
+):
+
+    report = update_report_status(
+        report_id,
+        status
+    )
 
     if report is None:
         raise HTTPException(
