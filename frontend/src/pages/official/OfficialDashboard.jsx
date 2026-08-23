@@ -11,11 +11,15 @@ import Sidebar from "../../components/Sidebar"
 import {
   getReports,
   updateReportStatus,
+  getPollutionData,
 } from "../../services/api"
 
 
 
 function OfficialDashboard() {
+  const [monitorData, setMonitorData] = useState(null)
+const [monitorLoading, setMonitorLoading] = useState(false)
+const [monitorError, setMonitorError] = useState("")
 
   // =========================================================
   // URL VIEW
@@ -60,34 +64,69 @@ const [
   setReports,
 ] = useState([])
 
-
 useEffect(() => {
+  if (view !== "monitor") {
+    return
+  }
 
-  const loadReports = async () => {
+  const loadMonitorData = () => {
 
-    try {
-
-      const data =
-        await getReports()
-
-      setReports(data)
-
-    } catch (error) {
-
-      console.error(
-        "Failed to load reports:",
-        error
+    if (!navigator.geolocation) {
+      setMonitorError(
+        "Location access is not supported by your browser."
       )
-
-      setReports([])
-
+      return
     }
+
+    setMonitorLoading(true)
+    setMonitorError("")
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+
+        try {
+
+          const data = await getPollutionData(
+            position.coords.latitude,
+            position.coords.longitude
+          )
+
+          setMonitorData(data)
+
+        } catch (error) {
+
+          console.error(
+            "Failed to load monitoring data:",
+            error
+          )
+
+          setMonitorError(
+            "Unable to load live pollution data."
+          )
+
+        } finally {
+
+          setMonitorLoading(false)
+
+        }
+
+      },
+      () => {
+
+        setMonitorError(
+          "Location permission is required for live monitoring."
+        )
+
+        setMonitorLoading(false)
+
+      }
+    )
 
   }
 
-  loadReports()
+  loadMonitorData()
 
-}, [])
+}, [view])
 
 
   // =========================================================
@@ -417,37 +456,34 @@ useEffect(() => {
               across the region.
             </p>
 
-            <div className="mt-6 flex h-80 items-center justify-center rounded-2xl border border-[#1e3445] bg-[#08121f]">
+           <div className="mt-6 flex h-80 items-center justify-center rounded-2xl border border-[#1e3445] bg-[#08121f]">
 
-              <div className="text-center">
+  <div className="text-center">
 
-                <div className="text-5xl">
-                  🗺️
-                </div>
+    <div className="text-5xl">
+      🗺️
+    </div>
 
-                <p className="mt-4 font-semibold">
-                  Environmental Monitoring Map
-                </p>
+    <p className="mt-4 font-semibold">
+      Environmental Monitoring Map
+    </p>
 
-                <p className="mt-2 text-sm text-[#64748b]">
-                  Live map integration can be
-                  connected here.
-                </p>
+    <p className="mt-2 text-sm text-[#64748b]">
+      Live monitoring is available in the Monitor Region section.
+    </p>
 
-                <button
-                  onClick={() =>
-                    changeView(
-                      "monitor"
-                    )
-                  }
-                  className="mt-5 rounded-lg bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#02120f] transition hover:bg-[#60d5ff]"
-                >
-                  Open Monitoring →
-                </button>
+    <button
+      onClick={() =>
+        changeView("monitor")
+      }
+      className="mt-5 rounded-lg bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#02120f]"
+    >
+      Open Monitoring →
+    </button>
 
-              </div>
+  </div>
 
-            </div>
+</div>
 
           </div>
 
@@ -542,164 +578,251 @@ useEffect(() => {
   // =========================================================
   // MONITOR VIEW
   // =========================================================
+const renderMonitor =
+  () => {
 
-  const renderMonitor =
-    () => {
+    return (
 
-      return (
+      <div>
 
-        <div>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
+          MONITOR
+        </p>
 
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
-            MONITOR
-          </p>
+        <h1 className="mt-3 text-4xl font-bold">
+          Environmental Monitoring
+        </h1>
 
-          <h1 className="mt-3 text-4xl font-bold">
-            Environmental Monitoring
-          </h1>
-
-          <p className="mt-3 max-w-2xl text-lg text-[#94a3b8]">
-            Monitor pollution hotspots,
-            environmental conditions and
-            active incidents across the region.
-          </p>
+        <p className="mt-3 max-w-2xl text-lg text-[#94a3b8]">
+          Monitor pollution hotspots,
+          environmental conditions and
+          active incidents across the region.
+        </p>
 
 
-          {/* MAP */}
+        {/* LIVE POLLUTION */}
 
-          <div className="mt-8 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+        <div className="mt-8 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
 
-            <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between">
 
-              <div>
+            <div>
 
-                <h2 className="text-xl font-bold">
-                  Live Pollution Hotspots
-                </h2>
+              <h2 className="text-xl font-bold">
+                Live Pollution Monitoring
+              </h2>
 
-                <p className="mt-1 text-sm text-[#64748b]">
-                  Environmental monitoring area
-                </p>
-
-              </div>
-
-              <span className="rounded-full border border-[#20e0c0]/30 bg-[#20e0c0]/10 px-3 py-1 text-xs font-semibold text-[#20e0c0]">
-                LIVE
-              </span>
+              <p className="mt-1 text-sm text-[#64748b]">
+                Real-time environmental conditions.
+              </p>
 
             </div>
 
-
-            <div className="mt-6 flex h-[420px] items-center justify-center rounded-2xl border border-[#1e3445] bg-[#08121f]">
-
-              <div className="text-center">
-
-                <div className="text-6xl">
-                  🗺️
-                </div>
-
-                <h3 className="mt-5 text-xl font-bold">
-                  Environmental Monitoring Map
-                </h3>
-
-                <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#64748b]">
-                  This area is ready for your
-                  Google Maps or live pollution
-                  map integration.
-                </p>
-
-
-                {/* MOCK HOTSPOTS */}
-
-                <div className="mt-7 flex flex-wrap justify-center gap-3">
-
-                  <span className="rounded-full border border-green-500/30 bg-green-500/10 px-4 py-2 text-xs font-medium text-green-400">
-                    🟢 Low Risk
-                  </span>
-
-                  <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-xs font-medium text-yellow-400">
-                    🟡 Moderate
-                  </span>
-
-                  <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-xs font-medium text-orange-400">
-                    🟠 High
-                  </span>
-
-                  <span className="rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-medium text-red-400">
-                    🔴 Critical
-                  </span>
-
-                </div>
-
-              </div>
-
-            </div>
+            <span className="rounded-full border border-[#20e0c0]/30 bg-[#20e0c0]/10 px-3 py-1 text-xs font-semibold text-[#20e0c0]">
+              LIVE
+            </span>
 
           </div>
 
 
-          {/* MONITOR STATS */}
+          <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-8">
 
-          <div className="mt-6 grid gap-5 md:grid-cols-3">
+            {monitorLoading ? (
 
-            <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6">
+              <div className="flex h-[360px] items-center justify-center">
 
-              <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                Active Areas
-              </p>
+                <p className="text-[#94a3b8]">
+                  Loading live pollution data...
+                </p>
 
-              <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
-                {activeIncidents}
-              </p>
+              </div>
 
-              <p className="mt-2 text-sm text-[#64748b]">
-                Areas requiring monitoring
-              </p>
+            ) : monitorError ? (
 
-            </div>
+              <div className="flex h-[360px] items-center justify-center">
+
+                <p className="text-red-400">
+                  {monitorError}
+                </p>
+
+              </div>
+
+            ) : monitorData ? (
+
+              <div>
+
+                <div className="text-center">
+
+                  <div className="text-5xl">
+                    🗺️
+                  </div>
+
+                  <h3 className="mt-4 text-2xl font-bold">
+                    Live Environmental Monitoring
+                  </h3>
+
+                  <p className="mt-2 text-[#94a3b8]">
+                    Real-time pollution conditions at your current location.
+                  </p>
+
+                </div>
 
 
-            <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-6">
+                {/* LOCATION */}
 
-              <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                High Risk
-              </p>
+                <div className="mt-8 rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5">
 
-              <p className="mt-3 text-3xl font-bold text-orange-400">
-                {highRiskCount}
-              </p>
+                  <p className="text-sm text-[#64748b]">
+                    LOCATION
+                  </p>
 
-              <p className="mt-2 text-sm text-[#64748b]">
-                High-risk reports
-              </p>
+                  <p className="mt-2 text-lg font-semibold">
+                    {monitorData.location ||
+                      "Current detected location"}
+                  </p>
 
-            </div>
+                </div>
 
 
-            <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-6">
+                {/* POLLUTION VALUES */}
 
-              <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                Critical
-              </p>
+                <div className="mt-5 grid gap-4 md:grid-cols-3">
 
-              <p className="mt-3 text-3xl font-bold text-red-400">
-                {criticalCount}
-              </p>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5 text-center">
 
-              <p className="mt-2 text-sm text-[#64748b]">
-                Critical incidents
-              </p>
+                    <p className="text-sm text-[#64748b]">
+                      PM2.5
+                    </p>
 
-            </div>
+                    <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
+                      {monitorData.pm25 ?? "N/A"}
+                    </p>
+
+                  </div>
+
+
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5 text-center">
+
+                    <p className="text-sm text-[#64748b]">
+                      PM10
+                    </p>
+
+                    <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
+                      {monitorData.pm10 ?? "N/A"}
+                    </p>
+
+                  </div>
+
+
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5 text-center">
+
+                    <p className="text-sm text-[#64748b]">
+                      NO₂
+                    </p>
+
+                    <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
+                      {monitorData.no2 ?? "N/A"}
+                    </p>
+
+                  </div>
+
+                </div>
+
+
+                {/* RISK */}
+
+                <div className="mt-6 text-center">
+
+                  <p className="text-sm text-[#64748b]">
+                    CURRENT RISK
+                  </p>
+
+                  <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
+                    {monitorData.risk || "Unknown"}
+                  </p>
+
+                </div>
+
+              </div>
+
+            ) : (
+
+              <div className="flex h-[360px] items-center justify-center">
+
+                <p className="text-[#94a3b8]">
+                  Monitoring data unavailable.
+                </p>
+
+              </div>
+
+            )}
 
           </div>
 
         </div>
 
-      )
 
-    }
+        {/* MONITOR STATS */}
 
+        <div className="mt-6 grid gap-5 md:grid-cols-3">
+
+          <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6">
+
+            <p className="text-xs uppercase tracking-wider text-[#64748b]">
+              Active Areas
+            </p>
+
+            <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
+              {activeIncidents}
+            </p>
+
+            <p className="mt-2 text-sm text-[#64748b]">
+              Areas requiring monitoring
+            </p>
+
+          </div>
+
+
+          <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-6">
+
+            <p className="text-xs uppercase tracking-wider text-[#64748b]">
+              High Risk
+            </p>
+
+            <p className="mt-3 text-3xl font-bold text-orange-400">
+              {highRiskCount}
+            </p>
+
+            <p className="mt-2 text-sm text-[#64748b]">
+              High-risk reports
+            </p>
+
+          </div>
+
+
+          <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-6">
+
+            <p className="text-xs uppercase tracking-wider text-[#64748b]">
+              Critical
+            </p>
+
+            <p className="mt-3 text-3xl font-bold text-red-400">
+              {criticalCount}
+            </p>
+
+            <p className="mt-2 text-sm text-[#64748b]">
+              Critical incidents
+            </p>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    )
+
+  }
 
   // =========================================================
   // ANALYSE VIEW
