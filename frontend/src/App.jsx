@@ -18,7 +18,6 @@ function App() {
 
       <Routes>
 
-
         {/* =================================================
             LANDING PAGE
         ================================================= */}
@@ -40,7 +39,7 @@ function App() {
 
 
         {/* =================================================
-            LOGIN
+            PUBLIC LOGIN
         ================================================= */}
 
         <Route
@@ -71,6 +70,7 @@ function App() {
 
         {/* =================================================
             PUBLIC REPORT
+            PublicDashboard handles the Report section.
         ================================================= */}
 
         <Route
@@ -81,6 +81,7 @@ function App() {
 
         {/* =================================================
             PUBLIC MY REPORTS
+            PublicDashboard handles the Track section.
         ================================================= */}
 
         <Route
@@ -99,33 +100,12 @@ function App() {
         />
 
 
-        {/* =================================================
-            OFFICIAL ANALYSIS
-            Landing → Analyse
-        ================================================= */}
-
-        <Route
-          path="/official/analyse"
-          element={<OfficialDashboard />}
-        />
-
-
-        {/* =================================================
-            OFFICIAL RESPONSE
-            Landing → Act
-        ================================================= */}
-
-        <Route
-          path="/official/respond"
-          element={<OfficialDashboard />}
-        />
-
-
       </Routes>
 
     </BrowserRouter>
 
   )
+
 }
 
 export default App
