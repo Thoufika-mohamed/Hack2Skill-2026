@@ -1,8 +1,11 @@
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import Navbar from "../components/Navbar"
 import PollutionMapPreview from "../components/PollutionMapPreview"
 
 function Landing() {
+
+  const navigate = useNavigate()
+
   return (
     <div className="min-h-screen overflow-hidden bg-[#050b14] text-[#f8fafc]">
 
@@ -10,20 +13,27 @@ function Landing() {
 
       <main>
 
-        {/* Hero */}
+        {/* =====================================================
+            HERO
+        ===================================================== */}
+
         <section className="relative">
 
           {/* Background glow */}
+
           <div className="pointer-events-none absolute left-[-120px] top-20 h-96 w-96 rounded-full bg-[#00bfa6]/10 blur-[120px]" />
 
           <div className="pointer-events-none absolute right-[-100px] top-10 h-96 w-96 rounded-full bg-[#38bdf8]/10 blur-[140px]" />
 
+
           <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 py-20 lg:grid-cols-[0.9fr_1.1fr] lg:py-28">
 
             {/* LEFT CONTENT */}
+
             <div>
 
               {/* Small label */}
+
               <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#1e3445] bg-[#0d1726] px-4 py-2">
 
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[#20e0c0]" />
@@ -36,6 +46,7 @@ function Landing() {
 
 
               {/* Main heading */}
+
               <h1 className="text-5xl font-bold leading-[0.98] tracking-[-0.04em] sm:text-6xl lg:text-7xl">
 
                 <span className="block text-[#f8fafc]">
@@ -43,6 +54,7 @@ function Landing() {
                 </span>
 
                 <span className="mt-2 block text-[#f8fafc]">
+
                   Understand the{" "}
 
                   <span className="text-[#20e0c0] drop-shadow-[0_0_20px_rgba(32,224,192,0.35)]">
@@ -65,6 +77,7 @@ function Landing() {
 
 
               {/* Description */}
+
               <p className="mt-8 max-w-xl text-base leading-7 text-[#94a3b8] sm:text-lg">
 
                 AeroShield combines citizen reports, environmental data,
@@ -75,6 +88,7 @@ function Landing() {
 
 
               {/* Buttons */}
+
               <div className="mt-9 flex flex-wrap gap-4">
 
                 <Link
@@ -104,6 +118,7 @@ function Landing() {
 
 
               {/* Trust indicators */}
+
               <div className="mt-12 grid max-w-xl grid-cols-3 gap-4 border-t border-[#1e3445] pt-6">
 
                 <div>
@@ -150,9 +165,9 @@ function Landing() {
 
 
             {/* RIGHT MAP */}
+
             <div className="relative">
 
-              {/* Glow behind map */}
               <div className="pointer-events-none absolute inset-10 rounded-full bg-[#00bfa6]/10 blur-[100px]" />
 
               <PollutionMapPreview />
@@ -164,13 +179,18 @@ function Landing() {
         </section>
 
 
-        {/* Platform capabilities */}
+        {/* =====================================================
+            PLATFORM CAPABILITIES
+        ===================================================== */}
+
         <section
           id="how-it-works"
           className="border-t border-[#1e3445] bg-[#070f1a] px-6 py-20"
         >
 
           <div className="mx-auto max-w-7xl">
+
+            {/* Heading */}
 
             <div className="max-w-2xl">
 
@@ -183,20 +203,30 @@ function Landing() {
               </h2>
 
               <p className="mt-4 text-[#94a3b8]">
+
                 AeroShield brings citizen observations, pollution data,
                 AI analysis, and authority response into one platform.
+
               </p>
 
             </div>
 
 
+            {/* =================================================
+                THREE ACTION CARDS
+            ================================================= */}
+
             <div className="mt-12 grid gap-5 md:grid-cols-3">
 
-              {/* ================================
+
+              {/* =================================================
                   REPORT
-              ================================= */}
-              <div
-                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 transition hover:-translate-y-1 hover:border-[#00bfa6]/60 hover:shadow-[0_0_30px_rgba(0,191,166,0.08)]"
+              ================================================= */}
+
+              <button
+                type="button"
+                onClick={() => navigate("/roles")}
+                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 text-left transition hover:-translate-y-1 hover:border-[#00bfa6]/60 hover:shadow-[0_0_30px_rgba(0,191,166,0.08)]"
               >
 
                 <div className="flex items-center justify-between">
@@ -218,18 +248,28 @@ function Landing() {
 
 
                 <p className="mt-3 text-sm leading-6 text-[#94a3b8]">
-                  Citizens submit pollution observations, locations,
-                  descriptions, and supporting images.
+
+                  Citizens submit pollution observations,
+                  locations, descriptions, and supporting images.
+
                 </p>
 
-              </div>
+
+                <span className="mt-6 block text-sm font-semibold text-[#20e0c0]">
+                  Report pollution →
+                </span>
+
+              </button>
 
 
-              {/* ================================
+              {/* =================================================
                   ANALYSE
-              ================================= */}
-              <div
-                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 transition hover:-translate-y-1 hover:border-[#38bdf8]/60 hover:shadow-[0_0_30px_rgba(56,189,248,0.08)]"
+              ================================================= */}
+
+              <button
+                type="button"
+                onClick={() => navigate("/official-dashboard?view=analyse")}
+                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 text-left transition hover:-translate-y-1 hover:border-[#38bdf8]/60 hover:shadow-[0_0_30px_rgba(56,189,248,0.08)]"
               >
 
                 <div className="flex items-center justify-between">
@@ -251,18 +291,28 @@ function Landing() {
 
 
                 <p className="mt-3 text-sm leading-6 text-[#94a3b8]">
-                  AI combines reports with environmental data to assess
-                  pollution conditions and potential risk.
+
+                  AI combines reports with environmental data
+                  to assess pollution conditions and potential risk.
+
                 </p>
 
-              </div>
+
+                <span className="mt-6 block text-sm font-semibold text-[#38bdf8]">
+                  Open official analysis →
+                </span>
+
+              </button>
 
 
-              {/* ================================
+              {/* =================================================
                   ACT
-              ================================= */}
-              <div
-                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 transition hover:-translate-y-1 hover:border-[#20e0c0]/60 hover:shadow-[0_0_30px_rgba(32,224,192,0.08)]"
+              ================================================= */}
+
+              <button
+                type="button"
+                onClick={() => navigate("/official-dashboard?view=respond")}
+                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 text-left transition hover:-translate-y-1 hover:border-[#20e0c0]/60 hover:shadow-[0_0_30px_rgba(32,224,192,0.08)]"
               >
 
                 <div className="flex items-center justify-between">
@@ -284,11 +334,19 @@ function Landing() {
 
 
                 <p className="mt-3 text-sm leading-6 text-[#94a3b8]">
-                  Authorities receive prioritized incidents and recommended
-                  actions for faster response.
+
+                  Authorities receive prioritized incidents and
+                  recommended actions for faster response.
+
                 </p>
 
-              </div>
+
+                <span className="mt-6 block text-sm font-semibold text-[#20e0c0]">
+                  Open response center →
+                </span>
+
+              </button>
+
 
             </div>
 
