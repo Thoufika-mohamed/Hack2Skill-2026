@@ -213,11 +213,10 @@ function Landing() {
 
 
             {/* =================================================
-                THREE ACTION CARDS
+                REPORT CARD
             ================================================= */}
 
-            <div className="mt-12 grid gap-5 md:grid-cols-3">
-
+            <div className="mt-12 grid gap-5 md:grid-cols-1">
 
               {/* =================================================
                   REPORT
@@ -260,93 +259,6 @@ function Landing() {
                 </span>
 
               </button>
-
-
-              {/* =================================================
-                  ANALYSE
-              ================================================= */}
-
-              <button
-                type="button"
-                onClick={() => navigate("/official-dashboard?view=analyse")}
-                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 text-left transition hover:-translate-y-1 hover:border-[#38bdf8]/60 hover:shadow-[0_0_30px_rgba(56,189,248,0.08)]"
-              >
-
-                <div className="flex items-center justify-between">
-
-                  <span className="text-xs font-semibold tracking-widest text-[#64748b]">
-                    02
-                  </span>
-
-                  <span className="text-2xl">
-                    ◉
-                  </span>
-
-                </div>
-
-
-                <h3 className="mt-8 text-xl font-bold text-[#f8fafc]">
-                  Analyse
-                </h3>
-
-
-                <p className="mt-3 text-sm leading-6 text-[#94a3b8]">
-
-                  AI combines reports with environmental data
-                  to assess pollution conditions and potential risk.
-
-                </p>
-
-
-                <span className="mt-6 block text-sm font-semibold text-[#38bdf8]">
-                  Open official analysis →
-                </span>
-
-              </button>
-
-
-              {/* =================================================
-                  ACT
-              ================================================= */}
-
-              <button
-                type="button"
-                onClick={() => navigate("/official-dashboard?view=respond")}
-                className="group cursor-pointer rounded-2xl border border-[#1e3445] bg-[#0d1726] p-7 text-left transition hover:-translate-y-1 hover:border-[#20e0c0]/60 hover:shadow-[0_0_30px_rgba(32,224,192,0.08)]"
-              >
-
-                <div className="flex items-center justify-between">
-
-                  <span className="text-xs font-semibold tracking-widest text-[#64748b]">
-                    03
-                  </span>
-
-                  <span className="text-2xl">
-                    ⚡
-                  </span>
-
-                </div>
-
-
-                <h3 className="mt-8 text-xl font-bold text-[#f8fafc]">
-                  Act
-                </h3>
-
-
-                <p className="mt-3 text-sm leading-6 text-[#94a3b8]">
-
-                  Authorities receive prioritized incidents and
-                  recommended actions for faster response.
-
-                </p>
-
-
-                <span className="mt-6 block text-sm font-semibold text-[#20e0c0]">
-                  Open response center →
-                </span>
-
-              </button>
-
 
             </div>
 
