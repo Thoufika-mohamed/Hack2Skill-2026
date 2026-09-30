@@ -1,6 +1,8 @@
 import {
   useEffect,
   useState,
+  useCallback,
+  useMemo,
 } from "react"
 
 import {
@@ -12,7 +14,10 @@ import {
   getReports,
   updateReportStatus,
   getPollutionData,
+  getGeospatialMapData,
 } from "../../services/api"
+import PollutionLeafletMap from "../../components/map/PollutionLeafletMap"
+import CitizenReportDetailsModal from "../../components/CitizenReportDetailsModal"
 
 
 
@@ -56,13 +61,40 @@ const [monitorError, setMonitorError] = useState("")
 
 
   // =========================================================
-  // REPORTS
+  // CITIZEN REPORTS & AUTO-REFRESH
   // =========================================================
 
-const [
-  reports,
-  setReports,
-] = useState([])
+  const [reports, setReports] = useState([])
+  const [reportsLoading, setReportsLoading] = useState(false)
+  const [reportsError, setReportsError] = useState("")
+  const [selectedReport, setSelectedReport] = useState(null)
+
+  // Report filter states
+  const [reportRiskFilter, setReportRiskFilter] = useState("All")
+  const [reportStatusFilter, setReportStatusFilter] = useState("All")
+  const [reportSearchQuery, setReportSearchQuery] = useState("")
+
+  const loadReports = useCallback(async () => {
+    try {
+      setReportsLoading(true)
+      setReportsError("")
+      const data = await getReports()
+      console.log("OFFICIAL DASHBOARD LOADED REPORTS:", data)
+      setReports(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error("Failed to load reports in Official Dashboard:", error)
+      setReportsError("Unable to load citizen reports from backend")
+    } finally {
+      setReportsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadReports()
+    // Poll every 10 seconds for real-time synchronization with citizen submissions
+    const interval = setInterval(loadReports, 10000)
+    return () => clearInterval(interval)
+  }, [loadReports])
 
 useEffect(() => {
   if (view !== "monitor") {
@@ -128,6 +160,30 @@ useEffect(() => {
 
 }, [view])
 
+  // =========================================================
+  // GEOSPATIAL MAP DATA FOR OFFICIAL DASHBOARD
+  // =========================================================
+
+  const [officialMapData, setOfficialMapData] = useState({ zones: [], heatmap_points: [] })
+  const [officialMapLoading, setOfficialMapLoading] = useState(false)
+
+  const loadOfficialMapData = useCallback(async () => {
+    try {
+      setOfficialMapLoading(true)
+      const data = await getGeospatialMapData("official")
+      setOfficialMapData(data)
+    } catch (error) {
+      console.error("Failed to load official map data:", error)
+    } finally {
+      setOfficialMapLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadOfficialMapData()
+    const interval = setInterval(loadOfficialMapData, 30000)
+    return () => clearInterval(interval)
+  }, [loadOfficialMapData])
 
   // =========================================================
   // CHANGE VIEW
@@ -148,82 +204,122 @@ useEffect(() => {
   // UPDATE REPORT STATUS
   // =========================================================
 
- const handleStatusChange = async (
-  reportId,
-  newStatus
-) => {
-  console.log("STATUS CHANGE:", reportId, newStatus)
+  const handleStatusChange = async (
+    reportId,
+    newStatus
+  ) => {
+    console.log("STATUS CHANGE:", reportId, newStatus)
 
-  try {
-    console.log("SENDING PATCH:", reportId, newStatus)
+    try {
+      console.log("SENDING PATCH:", reportId, newStatus)
 
-    const updatedReport =
-      await updateReportStatus(
-        reportId,
-        newStatus
+      const updatedReport =
+        await updateReportStatus(
+          reportId,
+          newStatus
+        )
+      console.log("PATCH RESPONSE:", updatedReport)
+
+      setReports((currentReports) =>
+        currentReports.map((report) =>
+          report.id === reportId
+            ? { ...report, ...updatedReport, status: newStatus }
+            : report
+        )
       )
-    console.log("PATCH RESPONSE:", updatedReport)
 
-    setReports((currentReports) =>
-      currentReports.map((report) =>
-        report.id === reportId
-          ? updatedReport
-          : report
+      setSelectedReport((current) => {
+        if (current && current.id === reportId) {
+          return { ...current, ...updatedReport, status: newStatus }
+        }
+        return current
+      })
+
+      loadOfficialMapData()
+      loadReports()
+
+    } catch (error) {
+
+      console.error(
+        "PATCH ERROR:",
+        error
       )
-    )
 
-  } catch (error) {
+    }
 
-  console.error(
-    "PATCH ERROR:",
-    error
-  )
-
-}
-
-}
+  }
 
 
   // =========================================================
-  // STATISTICS
+  // STATISTICS & FILTERED CITIZEN REPORTS
   // =========================================================
 
   const activeIncidents =
     reports.filter(
-      (report) =>
-        report.status !==
-        "Resolved"
+      (report) => (report.status || "").toLowerCase() !== "resolved"
     ).length
 
-
- const criticalCount =
-  reports.filter(
-    (report) =>
-      report.risk === "Critical"
-  ).length
-
+  const criticalCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "critical"
+    ).length
 
   const highRiskCount =
-  reports.filter(
-    (report) =>
-      report.risk === "High"
-  ).length
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "high"
+    ).length
 
+  const moderateCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "moderate"
+    ).length
+
+  const lowRiskCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "low"
+    ).length
 
   const underReviewCount =
     reports.filter(
-      (report) =>
-        report.status ===
-        "Under Review"
+      (report) => (report.status || "").toLowerCase() === "under review"
     ).length
-
 
   const resolvedCount =
     reports.filter(
-      (report) =>
-        report.status ===
-        "Resolved"
+      (report) => (report.status || "").toLowerCase() === "resolved"
     ).length
+
+  // Filtered citizen reports supporting Risk, Status, and Search
+  const filteredCitizenReports = useMemo(() => {
+    return reports.filter((r) => {
+      // Risk filter
+      if (reportRiskFilter !== "All") {
+        const rRisk = (r.risk || "Low").toLowerCase()
+        if (rRisk !== reportRiskFilter.toLowerCase()) {
+          return false
+        }
+      }
+      // Status filter
+      if (reportStatusFilter !== "All") {
+        const rStatus = (r.status || "Pending").toLowerCase()
+        if (rStatus !== reportStatusFilter.toLowerCase()) {
+          return false
+        }
+      }
+      // Search query
+      if (reportSearchQuery.trim()) {
+        const q = reportSearchQuery.toLowerCase()
+        const loc = (r.location || "").toLowerCase()
+        const desc = (r.description || "").toLowerCase()
+        const type = (r.pollution_type || r.type || "").toLowerCase()
+        const idStr = String(r.id || "")
+        if (!loc.includes(q) && !desc.includes(q) && !type.includes(q) && !idStr.includes(q)) {
+          return false
+        }
+      }
+      return true
+    })
+  }, [reports, reportRiskFilter, reportStatusFilter, reportSearchQuery])
 
 
   // =========================================================
@@ -293,9 +389,10 @@ useEffect(() => {
   ) => {
 
     return (
+      report.pollution_type ||
       report.type ||
       report.pollutionType ||
-      "Not specified"
+      "Air Pollution"
     )
 
   }
@@ -326,13 +423,23 @@ useEffect(() => {
     report
   ) => {
 
-    return (
+    const rawDate =
+      report.timestamp ||
       report.createdAt ||
       report.submittedAt ||
       report.date ||
-      report.updatedAt ||
-      "Date unavailable"
-    )
+      report.updatedAt
+
+    if (!rawDate) {
+      return "Date unavailable"
+    }
+
+    try {
+      const parsed = new Date(rawDate)
+      return isNaN(parsed.getTime()) ? rawDate : parsed.toLocaleString()
+    } catch {
+      return rawDate
+    }
 
   }
 
@@ -447,44 +554,117 @@ useEffect(() => {
 
           <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
 
-            <h2 className="text-xl font-bold">
-              Live Pollution Hotspots
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  Live Pollution Hotspots
+                </h2>
+                <p className="mt-1 text-sm text-[#64748b]">
+                  Regional environmental incidents, active zones, and real-time sensor stations.
+                </p>
+              </div>
+              <button
+                onClick={() => changeView("monitor")}
+                className="rounded-xl bg-[#38bdf8] px-4 py-2 text-xs font-bold text-[#02120f] transition hover:brightness-110 shadow-md"
+              >
+                Open Operational Control Center →
+              </button>
+            </div>
 
-            <p className="mt-1 text-sm text-[#64748b]">
-              Monitor environmental incidents
-              across the region.
-            </p>
+            <PollutionLeafletMap
+              variant="public"
+              zones={officialMapData.zones || []}
+              heatmapPoints={officialMapData.heatmap_points || []}
+              height="380px"
+            />
 
-           <div className="mt-6 flex h-80 items-center justify-center rounded-2xl border border-[#1e3445] bg-[#08121f]">
+          </div>
 
-  <div className="text-center">
 
-    <div className="text-5xl">
-      🗺️
-    </div>
+          {/* RECENT CITIZEN REPORTS */}
+          <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  Recent Citizen Reports
+                </h2>
+                <p className="mt-1 text-sm text-[#64748b]">
+                  Latest public pollution complaints submitted via the citizen portal.
+                </p>
+              </div>
+              <button
+                onClick={() => changeView("respond")}
+                className="rounded-xl border border-[#1e3445] bg-[#08121f] px-4 py-2 text-xs font-bold text-[#38bdf8] hover:border-[#38bdf8] transition"
+              >
+                View All {reports.length} Reports →
+              </button>
+            </div>
 
-    <p className="mt-4 font-semibold">
-      Environmental Monitoring Map
-    </p>
+            {reports.length === 0 ? (
+              <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-8 text-center text-[#64748b] text-sm">
+                No citizen reports received yet.
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {reports.slice(0, 6).map((report) => {
+                  const rRisk = report.risk || "Low"
+                  const rStatus = report.status || "Pending"
+                  return (
+                    <div
+                      key={report.id}
+                      onClick={() => setSelectedReport(report)}
+                      className="cursor-pointer rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 transition hover:-translate-y-0.5 hover:border-[#38bdf8]/50"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-bold text-[#38bdf8]">
+                          #{report.id}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold border ${
+                              rRisk === "Critical"
+                                ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                : rRisk === "High"
+                                ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
+                                : rRisk === "Moderate"
+                                ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                            }`}
+                          >
+                            {rRisk}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getStatusStyle(
+                              rStatus
+                            )}`}
+                          >
+                            {rStatus}
+                          </span>
+                        </div>
+                      </div>
 
-    <p className="mt-2 text-sm text-[#64748b]">
-      Live monitoring is available in the Monitor Region section.
-    </p>
-
-    <button
-      onClick={() =>
-        changeView("monitor")
-      }
-      className="mt-5 rounded-lg bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#02120f]"
-    >
-      Open Monitoring →
-    </button>
-
-  </div>
-
-</div>
-
+                      <h4 className="mt-2 text-sm font-bold text-white truncate">
+                        {getReportType(report)}
+                      </h4>
+                      <p className="mt-1 text-xs text-[#cbd5e1] truncate">
+                        📍 {report.location || "Location not specified"}
+                      </p>
+                      {report.description && (
+                        <p className="mt-2 text-xs text-[#94a3b8] line-clamp-2 italic">
+                          "{report.description}"
+                        </p>
+                      )}
+                      <div className="mt-3 flex items-center justify-between pt-2 border-t border-[#1e3445]/50 text-[11px] text-[#64748b]">
+                        <span>{getReportDate(report)}</span>
+                        <span className="text-[#38bdf8] font-medium hover:underline">
+                          View details →
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
 
@@ -602,161 +782,92 @@ const renderMonitor =
 
         {/* LIVE POLLUTION */}
 
+        {/* OPERATIONAL POLLUTION CONTROL MAP */}
+        <div className="mt-8">
+          <PollutionLeafletMap
+            variant="official"
+            zones={officialMapData.zones || []}
+            heatmapPoints={officialMapData.heatmap_points || []}
+            onUpdateStatus={handleStatusChange}
+            height="620px"
+          />
+        </div>
+
+        {/* REGIONAL SENSOR TELEMETRY */}
         <div className="mt-8 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
 
           <div className="flex items-center justify-between">
-
             <div>
-
-              <h2 className="text-xl font-bold">
-                Live Pollution Monitoring
+              <h2 className="text-xl font-bold text-white">
+                Live Sensor Station Telemetry
               </h2>
-
               <p className="mt-1 text-sm text-[#64748b]">
-                Real-time environmental conditions.
+                Real-time atmospheric readings from regional monitoring stations.
               </p>
-
             </div>
 
             <span className="rounded-full border border-[#20e0c0]/30 bg-[#20e0c0]/10 px-3 py-1 text-xs font-semibold text-[#20e0c0]">
-              LIVE
+              STATION TELEMETRY
             </span>
-
           </div>
 
-
-          <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-8">
-
+          <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-6">
             {monitorLoading ? (
-
-              <div className="flex h-[360px] items-center justify-center">
-
+              <div className="flex h-36 items-center justify-center">
                 <p className="text-[#94a3b8]">
-                  Loading live pollution data...
+                  Loading station readings...
                 </p>
-
               </div>
-
             ) : monitorError ? (
-
-              <div className="flex h-[360px] items-center justify-center">
-
+              <div className="flex h-36 items-center justify-center">
                 <p className="text-red-400">
                   {monitorError}
                 </p>
-
               </div>
-
             ) : monitorData ? (
-
-              <div>
-
-                <div className="text-center">
-
-                  <div className="text-5xl">
-                    🗺️
-                  </div>
-
-                  <h3 className="mt-4 text-2xl font-bold">
-                    Live Environmental Monitoring
-                  </h3>
-
-                  <p className="mt-2 text-[#94a3b8]">
-                    Real-time pollution conditions at your current location.
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 text-center">
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4 text-left">
+                  <p className="text-xs text-[#64748b]">Detected Station</p>
+                  <p className="mt-1 font-semibold text-white truncate">
+                    {monitorData.location || "Coimbatore Regional Station"}
                   </p>
-
                 </div>
 
-
-                {/* LOCATION */}
-
-                <div className="mt-8 rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5">
-
-                  <p className="text-sm text-[#64748b]">
-                    LOCATION
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">PM2.5</p>
+                  <p className="mt-1 text-2xl font-bold text-[#20e0c0]">
+                    {monitorData.pm25 ?? "N/A"}
                   </p>
-
-                  <p className="mt-2 text-lg font-semibold">
-                    {monitorData.location ||
-                      "Current detected location"}
-                  </p>
-
                 </div>
 
-
-                {/* POLLUTION VALUES */}
-
-                <div className="mt-5 grid gap-4 md:grid-cols-3">
-
-                  <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5 text-center">
-
-                    <p className="text-sm text-[#64748b]">
-                      PM2.5
-                    </p>
-
-                    <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
-                      {monitorData.pm25 ?? "N/A"}
-                    </p>
-
-                  </div>
-
-
-                  <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5 text-center">
-
-                    <p className="text-sm text-[#64748b]">
-                      PM10
-                    </p>
-
-                    <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
-                      {monitorData.pm10 ?? "N/A"}
-                    </p>
-
-                  </div>
-
-
-                  <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5 text-center">
-
-                    <p className="text-sm text-[#64748b]">
-                      NO₂
-                    </p>
-
-                    <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
-                      {monitorData.no2 ?? "N/A"}
-                    </p>
-
-                  </div>
-
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">PM10</p>
+                  <p className="mt-1 text-2xl font-bold text-white">
+                    {monitorData.pm10 ?? "N/A"}
+                  </p>
                 </div>
 
-
-                {/* RISK */}
-
-                <div className="mt-6 text-center">
-
-                  <p className="text-sm text-[#64748b]">
-                    CURRENT RISK
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">NO₂</p>
+                  <p className="mt-1 text-2xl font-bold text-[#38bdf8]">
+                    {monitorData.no2 ?? "N/A"}
                   </p>
-
-                  <p className="mt-2 text-3xl font-bold text-[#20e0c0]">
-                    {monitorData.risk || "Unknown"}
-                  </p>
-
                 </div>
 
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">Risk Status</p>
+                  <p className="mt-1 text-2xl font-bold text-[#20e0c0]">
+                    {monitorData.risk || "Normal"}
+                  </p>
+                </div>
               </div>
-
             ) : (
-
-              <div className="flex h-[360px] items-center justify-center">
-
+              <div className="flex h-36 items-center justify-center">
                 <p className="text-[#94a3b8]">
                   Monitoring data unavailable.
                 </p>
-
               </div>
-
             )}
-
           </div>
 
         </div>
@@ -1143,59 +1254,137 @@ const renderMonitor =
 
           {/* RESPONSE SUMMARY */}
 
-          <div className="mt-8 grid gap-5 md:grid-cols-4">
+          <div className="mt-8 grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
 
-            <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-5">
-
-              <p className="text-xs text-[#64748b]">
-                CRITICAL
+            <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Total Reports
               </p>
+              <p className="mt-2 text-2xl font-bold text-[#38bdf8]">
+                {reports.length}
+              </p>
+            </div>
 
-              <p className="mt-3 text-3xl font-bold text-red-400">
+            <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Critical
+              </p>
+              <p className="mt-2 text-2xl font-bold text-red-400">
                 {criticalCount}
               </p>
-
             </div>
 
-
-            <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-5">
-
-              <p className="text-xs text-[#64748b]">
-                HIGH RISK
+            <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                High Risk
               </p>
-
-              <p className="mt-3 text-3xl font-bold text-orange-400">
+              <p className="mt-2 text-2xl font-bold text-orange-400">
                 {highRiskCount}
               </p>
-
             </div>
 
-
-            <div className="rounded-2xl border border-purple-500/20 bg-[#0d1726] p-5">
-
-              <p className="text-xs text-[#64748b]">
-                UNDER REVIEW
+            <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Moderate
               </p>
+              <p className="mt-2 text-2xl font-bold text-yellow-400">
+                {moderateCount}
+              </p>
+            </div>
 
-              <p className="mt-3 text-3xl font-bold text-purple-400">
+            <div className="rounded-2xl border border-emerald-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Low Risk
+              </p>
+              <p className="mt-2 text-2xl font-bold text-emerald-400">
+                {lowRiskCount}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-purple-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Under Review
+              </p>
+              <p className="mt-2 text-2xl font-bold text-purple-400">
                 {underReviewCount}
               </p>
-
             </div>
 
+          </div>
 
-            <div className="rounded-2xl border border-green-500/20 bg-[#0d1726] p-5">
 
-              <p className="text-xs text-[#64748b]">
-                RESOLVED
-              </p>
+          {/* FILTERS & SEARCH TOOLBAR */}
+          <div className="mt-7 rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              {/* Search bar */}
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="Search by ID, location, description, or type..."
+                  value={reportSearchQuery}
+                  onChange={(e) => setReportSearchQuery(e.target.value)}
+                  className="w-full rounded-xl border border-[#1e3445] bg-[#08121f] px-4 py-2.5 pl-9 text-xs text-white placeholder-[#64748b] focus:border-[#38bdf8] focus:outline-none"
+                />
+                <span className="absolute left-3 top-2.5 text-xs text-[#64748b]">🔍</span>
+                {reportSearchQuery && (
+                  <button
+                    onClick={() => setReportSearchQuery("")}
+                    className="absolute right-3 top-2.5 text-xs text-[#64748b] hover:text-white"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
 
-              <p className="mt-3 text-3xl font-bold text-green-400">
-                {resolvedCount}
-              </p>
-
+              {/* Refresh Button */}
+              <button
+                onClick={loadReports}
+                disabled={reportsLoading}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-[#1e3445] bg-[#08121f] px-4 py-2.5 text-xs font-semibold text-[#38bdf8] hover:border-[#38bdf8] transition disabled:opacity-50"
+              >
+                <span>🔄</span>
+                <span>{reportsLoading ? "Refreshing..." : "Refresh Reports"}</span>
+              </button>
             </div>
 
+            {/* Filter Pills */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-[#1e3445]">
+              {/* Risk Filter */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-[#64748b] mr-1">Risk Level:</span>
+                {["All", "Low", "Moderate", "High", "Critical"].map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => setReportRiskFilter(lvl)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                      reportRiskFilter === lvl
+                        ? "bg-[#38bdf8] text-[#050b14] font-bold"
+                        : "bg-[#08121f] text-[#94a3b8] border border-[#1e3445] hover:text-white"
+                    }`}
+                  >
+                    {lvl === "Low" ? "🟢 Low" : lvl === "Moderate" ? "🟡 Moderate" : lvl === "High" ? "🟠 High" : lvl === "Critical" ? "🔴 Critical" : "All"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-[#64748b] mr-1">Status:</span>
+                {["All", "Under Review", "Pending", "In Progress", "Resolved"].map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setReportStatusFilter(st)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                      reportStatusFilter === st
+                        ? "bg-[#38bdf8] text-[#050b14] font-bold"
+                        : "bg-[#08121f] text-[#94a3b8] border border-[#1e3445] hover:text-white"
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
 
@@ -1208,18 +1397,31 @@ const renderMonitor =
               <div>
 
                 <h2 className="text-xl font-bold">
-                  Priority Incidents
+                  Citizen Complaints & Incident Reports
                 </h2>
 
                 <p className="mt-1 text-sm text-[#64748b]">
-                  Review and update citizen
-                  pollution complaints.
+                  Showing {filteredCitizenReports.length} of {reports.length} verified citizen submissions.
                 </p>
 
               </div>
 
-              <div className="rounded-lg bg-[#08121f] px-4 py-2 text-sm text-[#38bdf8]">
-                {reports.length} Reports
+              <div className="flex items-center gap-2">
+                {(reportRiskFilter !== "All" || reportStatusFilter !== "All" || reportSearchQuery) && (
+                  <button
+                    onClick={() => {
+                      setReportRiskFilter("All")
+                      setReportStatusFilter("All")
+                      setReportSearchQuery("")
+                    }}
+                    className="rounded-lg border border-[#1e3445] bg-[#08121f] px-3 py-1.5 text-xs text-[#94a3b8] hover:text-white"
+                  >
+                    Reset Filters
+                  </button>
+                )}
+                <div className="rounded-lg bg-[#08121f] px-4 py-2 text-xs font-semibold text-[#38bdf8] border border-[#1e3445]">
+                  {filteredCitizenReports.length} Shown
+                </div>
               </div>
 
             </div>
@@ -1234,13 +1436,41 @@ const renderMonitor =
                 </div>
 
                 <p className="mt-4 font-semibold">
-                  No incidents available
+                  No citizen complaints registered
                 </p>
 
                 <p className="mt-2 text-sm text-[#64748b]">
-                  Public pollution complaints
-                  will appear here.
+                  Public pollution complaints will appear here automatically when submitted.
                 </p>
+
+              </div>
+
+            ) : filteredCitizenReports.length === 0 ? (
+
+              <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-12 text-center">
+
+                <div className="text-4xl">
+                  🔍
+                </div>
+
+                <p className="mt-3 font-semibold text-white">
+                  No reports match the selected filters
+                </p>
+
+                <p className="mt-2 text-sm text-[#64748b]">
+                  Try adjusting or resetting your risk level, status, or search query.
+                </p>
+
+                <button
+                  onClick={() => {
+                    setReportRiskFilter("All")
+                    setReportStatusFilter("All")
+                    setReportSearchQuery("")
+                  }}
+                  className="mt-4 rounded-xl bg-[#38bdf8] px-4 py-2 text-xs font-bold text-[#050b14]"
+                >
+                  Show All Reports
+                </button>
 
               </div>
 
@@ -1248,56 +1478,34 @@ const renderMonitor =
 
               <div className="mt-6 space-y-4">
 
-                {[...reports]
-  .sort((a, b) => {
-
-    const riskOrder = {
-      Critical: 4,
-      High: 3,
-      Moderate: 2,
-      Low: 1,
-      Unknown: 0,
-    }
-
-    return (
-      (riskOrder[b.risk] || 0) -
-      (riskOrder[a.risk] || 0)
-    )
-
-  })
-  .map(
-    (report) => {
-
-                    const reportType =
-                      getReportType(
-                        report
-                      )
-
-                    const reportEmail =
-                      getReportEmail(
-                        report
-                      )
-
-                    const reportDate =
-                      getReportDate(
-                        report
-                      )
-
-                    const currentStatus =
-                      report.status ||
-                      "Pending"
-
+                {[...filteredCitizenReports]
+                  .sort((a, b) => {
+                    const riskOrder = {
+                      Critical: 4,
+                      High: 3,
+                      Moderate: 2,
+                      Low: 1,
+                      Unknown: 0,
+                    }
+                    const diff = (riskOrder[b.risk] || 0) - (riskOrder[a.risk] || 0)
+                    if (diff !== 0) return diff
+                    return (b.id || 0) - (a.id || 0)
+                  })
+                  .map((report) => {
+                    const reportType = getReportType(report)
+                    const reportEmail = getReportEmail(report)
+                    const reportDate = getReportDate(report)
+                    const currentStatus = report.status || "Pending"
+                    const rRisk = report.risk || "Low"
 
                     return (
 
                       <div
-                        key={
-                          report.id
-                        }
+                        key={report.id}
                         className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5 transition hover:border-[#38bdf8]/40"
                       >
 
-                        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
 
                           {/* INCIDENT INFO */}
 
@@ -1305,107 +1513,124 @@ const renderMonitor =
 
                             <div className="flex flex-wrap items-center gap-3">
 
-                              <span className="rounded-md bg-[#0d1726] px-3 py-1 text-xs font-semibold text-[#38bdf8]">
-                                {report.id}
+                              <span className="rounded-md bg-[#0d1726] px-3 py-1 font-mono text-xs font-bold text-[#38bdf8] border border-[#1e3445]">
+                                #{report.id}
                               </span>
 
                               <span
-  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusStyle(
-    currentStatus
-  )}`}
->
-  {currentStatus}
-</span>
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusStyle(
+                                  currentStatus
+                                )}`}
+                              >
+                                {currentStatus}
+                              </span>
 
-<span
-  className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-    report.risk === "Critical"
-      ? "border-red-500/30 bg-red-500/10 text-red-400"
-      : report.risk === "High"
-        ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
-        : report.risk === "Moderate"
-          ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-          : "border-green-500/30 bg-green-500/10 text-green-400"
-  }`}
->
-  Risk: {report.risk || "Unknown"}
-</span>
+                              <span
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                  rRisk === "Critical"
+                                    ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                    : rRisk === "High"
+                                    ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
+                                    : rRisk === "Moderate"
+                                    ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                                }`}
+                              >
+                                {rRisk === "Critical"
+                                  ? "🔴 Critical Risk"
+                                  : rRisk === "High"
+                                  ? "🟠 High Risk"
+                                  : rRisk === "Moderate"
+                                  ? "🟡 Moderate Risk"
+                                  : "🟢 Low Risk"}
+                              </span>
 
                             </div>
 
 
-                            <h3 className="mt-4 text-lg font-bold">
+                            <h3 className="mt-3 text-lg font-bold text-white">
                               {reportType}
                             </h3>
 
 
-                            <p className="mt-2 text-sm text-[#cbd5e1]">
-                              📍{" "}
-                              {report.location ||
-                                "Location not specified"}
+                            <p className="mt-1.5 text-sm text-[#cbd5e1] flex items-center gap-1.5">
+                              <span className="text-[#38bdf8]">📍</span>
+                              <span className="font-medium">{report.location || "Location not specified"}</span>
                             </p>
 
 
-                            <p className="mt-2 text-sm text-[#64748b]">
-                              👤{" "}
-                              {report.userName ||
-                                "Public User"}
-                            </p>
+                            {/* CITIZEN DESCRIPTION */}
+                            {report.description && (
+                              <div className="mt-3 rounded-xl border border-[#1e3445] bg-[#0d1726] p-3 text-xs">
+                                <span className="font-semibold text-[#64748b] block mb-1">
+                                  Citizen Report Description:
+                                </span>
+                                <p className="text-[#e2e8f0] italic leading-relaxed">
+                                  "{report.description}"
+                                </p>
+                              </div>
+                            )}
 
 
-                            <p className="mt-1 text-xs text-[#475569]">
-                              {reportEmail}
-                            </p>
-
-
-                            <p className="mt-2 text-xs text-[#64748b]">
-                              Submitted:{" "}
-                              {reportDate}
-                            </p>
+                            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[#64748b]">
+                              <span>👤 {report.userName || "Public User"}</span>
+                              {reportEmail && reportEmail !== "No email" && (
+                                <span>✉️ {reportEmail}</span>
+                              )}
+                              <span>🕒 {reportDate}</span>
+                            </div>
 
                           </div>
 
 
-                          {/* RESPONSE ACTION */}
+                          {/* RESPONSE ACTIONS & STATUS */}
 
-                          <div className="w-full lg:w-56">
+                          <div className="flex flex-col gap-3 w-full lg:w-56 shrink-0">
 
-                            <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-[#64748b]">
-                              Update Status
-                            </label>
-
-                            <select
-                              value={
-                                currentStatus
-                              }
-                              onChange={(e) =>
-                                handleStatusChange(
-                                  report.id,
-                                  e.target.value
-                                )
-                              }
-                              className={`w-full rounded-xl border bg-[#0d1726] px-4 py-3 text-sm font-semibold outline-none ${getStatusStyle(
-                                currentStatus
-                              )}`}
+                            <button
+                              onClick={() => setSelectedReport(report)}
+                              className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#38bdf8]/40 bg-[#38bdf8]/10 px-4 py-2.5 text-xs font-bold text-[#38bdf8] hover:bg-[#38bdf8]/20 transition"
                             >
+                              <span>🔍</span>
+                              <span>View Full Details</span>
+                            </button>
 
-                              <option value="Pending">
-                                Pending
-                              </option>
+                            <div>
+                              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-[#64748b]">
+                                Investigation Status
+                              </label>
 
-                              <option value="Under Review">
-                                Under Review
-                              </option>
+                              <select
+                                value={currentStatus}
+                                onChange={(e) =>
+                                  handleStatusChange(
+                                    report.id,
+                                    e.target.value
+                                  )
+                                }
+                                className={`w-full rounded-xl border bg-[#0d1726] px-3 py-2 text-xs font-semibold outline-none transition ${getStatusStyle(
+                                  currentStatus
+                                )}`}
+                              >
 
-                              <option value="In Progress">
-                                In Progress
-                              </option>
+                                <option value="Under Review">
+                                  Under Review
+                                </option>
 
-                              <option value="Resolved">
-                                Resolved
-                              </option>
+                                <option value="Pending">
+                                  Pending
+                                </option>
 
-                            </select>
+                                <option value="In Progress">
+                                  In Progress
+                                </option>
+
+                                <option value="Resolved">
+                                  Resolved
+                                </option>
+
+                              </select>
+                            </div>
 
                           </div>
 
@@ -1637,6 +1862,15 @@ const renderMonitor =
         {renderContent()}
 
       </main>
+
+      {/* CITIZEN REPORT DETAILS MODAL */}
+      {selectedReport && (
+        <CitizenReportDetailsModal
+          report={selectedReport}
+          onClose={() => setSelectedReport(null)}
+          onUpdateStatus={handleStatusChange}
+        />
+      )}
 
     </div>
 

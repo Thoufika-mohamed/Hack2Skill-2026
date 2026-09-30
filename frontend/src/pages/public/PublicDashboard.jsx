@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import Sidebar from "../../components/Sidebar"
 import {
   submitPollutionReport,
   getReports,
-  getPollutionData
+  getPollutionData,
+  getGeospatialMapData
 } from "../../services/api"
+import PollutionLeafletMap from "../../components/map/PollutionLeafletMap"
+
 function PublicDashboard() {
 
   // =====================================================
@@ -231,6 +234,31 @@ useEffect(() => {
 }, [])
 
   // =====================================================
+  // GEOSPATIAL MAP DATA & NEAR-REAL-TIME POLLING
+  // =====================================================
+
+  const [geospatialData, setGeospatialData] = useState({ zones: [], heatmap_points: [] })
+  const [mapLoading, setMapLoading] = useState(false)
+
+  const loadGeospatialData = useCallback(async () => {
+    try {
+      setMapLoading(true)
+      const data = await getGeospatialMapData("public")
+      setGeospatialData(data)
+    } catch (err) {
+      console.error("Failed to load geospatial map data:", err)
+    } finally {
+      setMapLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadGeospatialData()
+    const interval = setInterval(loadGeospatialData, 30000)
+    return () => clearInterval(interval)
+  }, [loadGeospatialData])
+
+  // =====================================================
   // HANDLE REPORT SUBMISSION
   // =====================================================
 
@@ -317,6 +345,9 @@ description:
           "Report saved:",
           savedReport
         )
+
+        // Instantly refresh geospatial map data with the new report
+        loadGeospatialData()
 
         // SUCCESS MESSAGE
         setSubmitMessage(
@@ -781,195 +812,103 @@ useEffect(() => {
             </p>
 
 
-            <div className="mt-10 grid gap-5 md:grid-cols-3">
-
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
               {/* LOW */}
-
-              <div className="rounded-2xl border border-green-500/20 bg-[#0d1726] p-6">
-
-                <div className="text-3xl">
-
-                  🟢
-
-                </div>
-
-
-                <h2 className="mt-4 text-xl font-bold">
-
-                  Low Risk
-
-                </h2>
-
-
-                <p className="mt-2 text-sm text-[#94a3b8]">
-
-                  Air quality is currently within a relatively safe range.
-
+              <div className="rounded-2xl border border-emerald-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🟢</div>
+                <h2 className="mt-3 text-lg font-bold text-white">Low Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Air quality is within normal/safe limits. No precautions needed.
                 </p>
-
               </div>
-
 
               {/* MODERATE */}
-
-              <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-6">
-
-                <div className="text-3xl">
-
-                  🟡
-
-                </div>
-
-
-                <h2 className="mt-4 text-xl font-bold">
-
-                  Moderate Risk
-
-                </h2>
-
-
-                <p className="mt-2 text-sm text-[#94a3b8]">
-
-                  Some pollution indicators require attention.
-
+              <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🟡</div>
+                <h2 className="mt-3 text-lg font-bold text-white">Moderate Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Moderate pollution activity. Sensitive individuals should take care.
                 </p>
-
               </div>
-
 
               {/* HIGH */}
-
-              <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-6">
-
-                <div className="text-3xl">
-
-                  🔴
-
-                </div>
-
-
-                <h2 className="mt-4 text-xl font-bold">
-
-                  High Risk
-
-                </h2>
-
-
-                <p className="mt-2 text-sm text-[#94a3b8]">
-
-                  Pollution levels are elevated in this area.
-
+              <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🟠</div>
+                <h2 className="mt-3 text-lg font-bold text-white">High Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Elevated pollution levels. Sensitive groups should wear masks outdoors.
                 </p>
-
               </div>
 
+              {/* CRITICAL */}
+              <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🔴</div>
+                <h2 className="mt-3 text-lg font-bold text-white">Critical Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Hazardous air quality. Avoid prolonged outdoor exposure immediately.
+                </p>
+              </div>
 
             </div>
 
+            {/* INTERACTIVE LEAFLET + OPENSTREETMAP RISK VISUALIZATION */}
+            <div className="mt-8">
+              <PollutionLeafletMap
+                variant="public"
+                zones={geospatialData.zones || []}
+                heatmapPoints={geospatialData.heatmap_points || []}
+                onReportClick={() => handleSectionChange("report")}
+                height="540px"
+              />
+            </div>
 
-            {/* MAP */}
-
-            <div className="mt-8 flex min-h-[420px] items-center justify-center rounded-3xl border border-[#1e3445] bg-[#0d1726]">
-
-              <div className="text-center">
-
-                <div className="text-6xl">
-
-                  🗺️
-
+            {/* LIVE SENSOR TELEMETRY AT CURRENT LOCATION */}
+            <div className="mt-6 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white">
+                    Live Environmental Telemetry (Your Area)
+                  </h3>
+                  <p className="mt-1 text-xs text-[#64748b]">
+                    Real-time atmospheric sensor readings from nearest OpenAQ monitoring station
+                  </p>
                 </div>
-
-
-                <h2 className="mt-5 text-2xl font-bold">
-
-                  Environmental Monitoring Map
-
-                </h2>
-
-
-                {pollutionLoading ? (
-
-  <p className="mt-3 text-[#94a3b8]">
-    Loading live pollution data...
-  </p>
-
-) : pollutionError ? (
-
-  <p className="mt-3 text-red-400">
-    {pollutionError}
-  </p>
-
-) : pollutionData ? (
-
-  <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-    <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4">
-      <p className="text-sm text-[#94a3b8]">
-        Location
-      </p>
-
-      <p className="mt-2 font-semibold text-white">
-        {pollutionData.location}
-      </p>
-    </div>
-
-
-    <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4">
-      <p className="text-sm text-[#94a3b8]">
-        PM2.5
-      </p>
-
-      <p className="mt-2 text-2xl font-bold text-[#20e0c0]">
-        {pollutionData.pm25}
-      </p>
-    </div>
-
-
-    <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4">
-      <p className="text-sm text-[#94a3b8]">
-        PM10
-      </p>
-
-      <p className="mt-2 text-2xl font-bold text-[#20e0c0]">
-        {pollutionData.pm10}
-      </p>
-    </div>
-
-
-    <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4">
-      <p className="text-sm text-[#94a3b8]">
-        NO₂
-      </p>
-
-      <p className="mt-2 text-2xl font-bold text-[#20e0c0]">
-        {pollutionData.no2}
-      </p>
-    </div>
-
-
-    <div className="sm:col-span-2 lg:col-span-4">
-      <p className="text-sm text-[#94a3b8]">
-        Current Risk
-      </p>
-
-      <p className="mt-2 text-xl font-bold text-[#20e0c0]">
-        {pollutionData.risk}
-      </p>
-    </div>
-
-  </div>
-
-) : (
-
-  <p className="mt-3 text-[#94a3b8]">
-    No live pollution data available.
-  </p>
-
-)}
-
+                <span className="rounded-full border border-[#20e0c0]/30 bg-[#20e0c0]/10 px-3 py-1 text-xs font-semibold text-[#20e0c0]">
+                  LIVE TELEMETRY
+                </span>
               </div>
 
+              {pollutionLoading ? (
+                <p className="mt-4 text-xs text-[#94a3b8]">Loading live telemetry data...</p>
+              ) : pollutionError ? (
+                <p className="mt-4 text-xs text-red-400">{pollutionError}</p>
+              ) : pollutionData ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4">
+                    <p className="text-xs text-[#64748b]">Station Location</p>
+                    <p className="mt-1.5 text-sm font-semibold text-white truncate">{pollutionData.location}</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">PM2.5</p>
+                    <p className="mt-1.5 text-xl font-bold text-[#20e0c0]">{pollutionData.pm25} <span className="text-xs text-[#64748b]">µg/m³</span></p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">PM10</p>
+                    <p className="mt-1.5 text-xl font-bold text-white">{pollutionData.pm10} <span className="text-xs text-[#64748b]">µg/m³</span></p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">NO₂</p>
+                    <p className="mt-1.5 text-xl font-bold text-[#38bdf8]">{pollutionData.no2} <span className="text-xs text-[#64748b]">µg/m³</span></p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">Calculated Risk</p>
+                    <p className="mt-1.5 text-xl font-bold text-[#20e0c0]">{pollutionData.risk}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-xs text-[#94a3b8]">No telemetry data available.</p>
+              )}
             </div>
 
 

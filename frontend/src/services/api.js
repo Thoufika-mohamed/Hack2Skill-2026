@@ -1,7 +1,7 @@
 import axios from "axios"
 
 const api = axios.create({
-  baseURL: "http://127.0.0.1:8000",
+  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000",
   headers: {
     "Content-Type": "application/json",
   },
@@ -46,4 +46,15 @@ export const updateReportStatus = async (
 
   return response.data
 }
+
+// GET unified geospatial map data (public vs official)
+export const getGeospatialMapData = async (role = "public") => {
+  const response = await api.get("/api/geospatial/map-data", {
+    params: {
+      role,
+    },
+  })
+  return response.data
+}
+
 export default api

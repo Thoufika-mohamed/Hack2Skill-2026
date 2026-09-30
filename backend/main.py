@@ -1,3 +1,16 @@
+import sys
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Ensure project root is in sys.path for reliable cloud imports
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv()
+load_dotenv(os.path.join(PROJECT_ROOT, "backend", ".env"))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,9 +19,7 @@ from backend.routes.pollution_routes import router as pollution_router
 from backend.routes.reports_routes import router as reports_router
 from backend.routes.ai_routes import router as ai_router
 from backend.routes.hotspot_routes import router as hotspot_router
-from dotenv import load_dotenv
-
-load_dotenv("backend/.env")
+from backend.routes.geospatial_routes import router as geospatial_router
 
 
 app = FastAPI(title="Hack2Skill Backend")
@@ -33,3 +44,4 @@ app.include_router(pollution_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
 app.include_router(hotspot_router, prefix="/api")
+app.include_router(geospatial_router, prefix="/api")
