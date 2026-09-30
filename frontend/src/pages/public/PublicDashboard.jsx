@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import Sidebar from "../../components/Sidebar"
+import {
+  submitPollutionReport,
+  getReports,
+  getPollutionData,
+  getGeospatialMapData
+} from "../../services/api"
+import PollutionLeafletMap from "../../components/map/PollutionLeafletMap"
 
 function PublicDashboard() {
 
@@ -128,6 +135,14 @@ function PublicDashboard() {
 
   const [pollutionType, setPollutionType] =
     useState("Smoke")
+    const [pollutionData, setPollutionData] =
+  useState(null)
+
+const [pollutionLoading, setPollutionLoading] =
+  useState(false)
+
+const [pollutionError, setPollutionError] =
+  useState("")
 
 
   const [location, setLocation] =
@@ -140,7 +155,108 @@ function PublicDashboard() {
 
   const [submitMessage, setSubmitMessage] =
     useState("")
+useEffect(() => {
 
+  const loadPollutionData = () => {
+
+    if (!navigator.geolocation) {
+
+      setPollutionError(
+        "Location access is not supported by your browser."
+      )
+
+      return
+    }
+
+    setPollutionLoading(true)
+    setPollutionError("")
+
+    navigator.geolocation.getCurrentPosition(
+
+      async (position) => {
+
+        try {
+
+          const latitude =
+            position.coords.latitude
+
+          const longitude =
+            position.coords.longitude
+
+          const data =
+            await getPollutionData(
+              latitude,
+              longitude
+            )
+
+          setPollutionData(data)
+
+        } catch (error) {
+
+          console.error(
+            "Failed to load pollution data:",
+            error
+          )
+
+          setPollutionError(
+            "Unable to load live pollution data."
+          )
+
+        } finally {
+
+          setPollutionLoading(false)
+
+        }
+
+      },
+
+      (error) => {
+
+        console.error(
+          "Location error:",
+          error
+        )
+
+        setPollutionError(
+          "Please allow location access to view live pollution data."
+        )
+
+        setPollutionLoading(false)
+
+      }
+
+    )
+
+  }
+
+  loadPollutionData()
+
+}, [])
+
+  // =====================================================
+  // GEOSPATIAL MAP DATA & NEAR-REAL-TIME POLLING
+  // =====================================================
+
+  const [geospatialData, setGeospatialData] = useState({ zones: [], heatmap_points: [] })
+  const [mapLoading, setMapLoading] = useState(false)
+
+  const loadGeospatialData = useCallback(async () => {
+    try {
+      setMapLoading(true)
+      const data = await getGeospatialMapData("public")
+      setGeospatialData(data)
+    } catch (err) {
+      console.error("Failed to load geospatial map data:", err)
+    } finally {
+      setMapLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadGeospatialData()
+    const interval = setInterval(loadGeospatialData, 30000)
+    return () => clearInterval(interval)
+  }, [loadGeospatialData])
 
   // =====================================================
   // HANDLE REPORT SUBMISSION
@@ -148,240 +264,174 @@ function PublicDashboard() {
 
   const handleSubmitReport = () => {
 
-    setSubmitMessage("")
+  setSubmitMessage("")
 
-
-    // ===================================================
-    // CHECK REQUIRED FIELDS
-    // ===================================================
-
-    if (
-      !location.trim() ||
-      !description.trim()
-    ) {
-
-      setSubmitMessage(
-        "Please enter the location and description."
-      )
-
-      return
-    }
-
-
-    // ===================================================
-    // CREATE COMPLAINT ID
-    // ===================================================
-
-    const complaintId =
-      "AS-" +
-      Date.now().toString().slice(-8)
-
-
-    // ===================================================
-    // GET CURRENT USER EMAIL
-    // ===================================================
-
-    const accountData =
-      localStorage.getItem("aeroShieldAccount")
-
-
-    let userEmail = ""
-
-
-    if (accountData) {
-
-      try {
-
-        const account =
-          JSON.parse(accountData)
-
-        userEmail =
-          account.email || ""
-
-      } catch {
-
-        userEmail = ""
-
-      }
-
-    }
-
-
-    // ===================================================
-    // CREATE REPORT OBJECT
-    // ===================================================
-
-    const newReport = {
-
-      id: complaintId,
-
-      userName: userName,
-
-      userEmail: userEmail,
-
-      pollutionType: pollutionType,
-
-      location: location.trim(),
-
-      description: description.trim(),
-
-      status: "Pending",
-
-      submittedAt:
-        new Date().toLocaleString(),
-
-    }
-
-
-    // ===================================================
-    // GET EXISTING REPORTS
-    // ===================================================
-
-    let existingReports = []
-
-
-    const savedReports =
-      localStorage.getItem("aeroShieldReports")
-
-
-    if (savedReports) {
-
-      try {
-
-        existingReports =
-          JSON.parse(savedReports)
-
-      } catch {
-
-        existingReports = []
-
-      }
-
-    }
-
-
-    // ===================================================
-    // ADD NEW REPORT
-    // ===================================================
-
-    existingReports.push(newReport)
-
-
-    // ===================================================
-    // SAVE REPORT
-    // ===================================================
-
-    localStorage.setItem(
-      "aeroShieldReports",
-      JSON.stringify(existingReports)
-    )
-
-
-    // ===================================================
-    // SUCCESS MESSAGE
-    // ===================================================
+  // CHECK REQUIRED FIELDS
+  if (
+    !location.trim() ||
+    !description.trim()
+  ) {
 
     setSubmitMessage(
-      `Report submitted successfully! Your complaint ID is ${complaintId}`
+      "Please enter the location and description."
     )
 
-
-    // ===================================================
-    // CLEAR FORM
-    // ===================================================
-
-    setPollutionType("Smoke")
-
-    setLocation("")
-
-    setDescription("")
-
-
-    // ===================================================
-    // OPEN TRACK PAGE
-    // ===================================================
-
-    setTimeout(() => {
-
-      setSubmitMessage("")
-
-      handleSectionChange("track")
-
-    }, 1500)
-
+    return
   }
 
+  // CHECK GEOLOCATION SUPPORT
+  if (!navigator.geolocation) {
 
-  // =====================================================
-  // GET MY REPORTS
-  // =====================================================
+    setSubmitMessage(
+      "Location access is not supported by your browser."
+    )
 
-  const getMyReports = () => {
+    return
+  }
 
-    const savedReports =
-      localStorage.getItem("aeroShieldReports")
+  setSubmitMessage(
+    "Getting your location..."
+  )
 
+  // GET CURRENT LOCATION
+  navigator.geolocation.getCurrentPosition(
 
-    if (!savedReports) {
+    async (position) => {
 
-      return []
+      try {
 
-    }
+        const latitude =
+          position.coords.latitude
 
+        const longitude =
+          position.coords.longitude
 
-    try {
+        // DATA EXPECTED BY FASTAPI
+        const reportData = {
 
-      const reports =
-        JSON.parse(savedReports)
+          location:
+            location.trim(),
 
+          latitude:
+            latitude,
 
-      const accountData =
-        localStorage.getItem("aeroShieldAccount")
+          longitude:
+            longitude,
 
+          pollution_type:
+  pollutionType,
 
-      let email = ""
+risk:
+  pollutionData?.risk || "Unknown",
 
+description:
+  description.trim(),
 
-      if (accountData) {
+          timestamp:
+            new Date().toISOString(),
 
-        try {
-
-          const account =
-            JSON.parse(accountData)
-
-          email =
-            account.email || ""
-
-        } catch {
-
-          email = ""
+          photo_url:
+            null
 
         }
 
+        // SEND REPORT TO FASTAPI
+        const savedReport =
+          await submitPollutionReport(
+            reportData
+          )
+
+        console.log(
+          "Report saved:",
+          savedReport
+        )
+
+        // Instantly refresh geospatial map data with the new report
+        loadGeospatialData()
+
+        // SUCCESS MESSAGE
+        setSubmitMessage(
+          `Report submitted successfully! Your complaint ID is ${savedReport.id}`
+        )
+
+        // CLEAR FORM
+        setPollutionType("Smoke")
+        setLocation("")
+        setDescription("")
+
+        // OPEN TRACK PAGE
+        setTimeout(() => {
+
+          setSubmitMessage("")
+
+          handleSectionChange("track")
+
+        }, 1500)
+
+      } catch (error) {
+
+        console.error(
+          "Report submission failed:",
+          error
+        )
+
+        setSubmitMessage(
+          "Failed to submit report. Please try again."
+        )
+
       }
 
+    },
 
-      // =================================================
-      // MATCH REPORTS WITH LOGGED-IN USER
-      // =================================================
+    (error) => {
 
-      return reports.filter(
-        (report) =>
-          report.userEmail === email ||
-          report.userName === userName
+      console.error(
+        "Location error:",
+        error
       )
 
-    } catch {
+      setSubmitMessage(
+        "Please allow location access to submit your report."
+      )
 
-      return []
+    }
+
+  )
+
+}
+
+// =====================================================
+// GET MY REPORTS
+// =====================================================
+
+const [myReports, setMyReports] = useState([])
+
+useEffect(() => {
+
+  const loadReports = async () => {
+
+    try {
+
+      const reports = await getReports()
+
+      setMyReports(reports)
+
+    } catch (error) {
+
+      console.error(
+        "Failed to load reports:",
+        error
+      )
+
+      setMyReports([])
 
     }
 
   }
 
+  loadReports()
 
-  const myReports =
-    getMyReports()
+}, [activeSection])
 
 
   // =====================================================
@@ -762,128 +812,103 @@ function PublicDashboard() {
             </p>
 
 
-            <div className="mt-10 grid gap-5 md:grid-cols-3">
-
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
               {/* LOW */}
-
-              <div className="rounded-2xl border border-green-500/20 bg-[#0d1726] p-6">
-
-                <div className="text-3xl">
-
-                  🟢
-
-                </div>
-
-
-                <h2 className="mt-4 text-xl font-bold">
-
-                  Low Risk
-
-                </h2>
-
-
-                <p className="mt-2 text-sm text-[#94a3b8]">
-
-                  Air quality is currently within a relatively safe range.
-
+              <div className="rounded-2xl border border-emerald-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🟢</div>
+                <h2 className="mt-3 text-lg font-bold text-white">Low Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Air quality is within normal/safe limits. No precautions needed.
                 </p>
-
               </div>
-
 
               {/* MODERATE */}
-
-              <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-6">
-
-                <div className="text-3xl">
-
-                  🟡
-
-                </div>
-
-
-                <h2 className="mt-4 text-xl font-bold">
-
-                  Moderate Risk
-
-                </h2>
-
-
-                <p className="mt-2 text-sm text-[#94a3b8]">
-
-                  Some pollution indicators require attention.
-
+              <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🟡</div>
+                <h2 className="mt-3 text-lg font-bold text-white">Moderate Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Moderate pollution activity. Sensitive individuals should take care.
                 </p>
-
               </div>
-
 
               {/* HIGH */}
-
-              <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-6">
-
-                <div className="text-3xl">
-
-                  🔴
-
-                </div>
-
-
-                <h2 className="mt-4 text-xl font-bold">
-
-                  High Risk
-
-                </h2>
-
-
-                <p className="mt-2 text-sm text-[#94a3b8]">
-
-                  Pollution levels are elevated in this area.
-
+              <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🟠</div>
+                <h2 className="mt-3 text-lg font-bold text-white">High Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Elevated pollution levels. Sensitive groups should wear masks outdoors.
                 </p>
-
               </div>
 
+              {/* CRITICAL */}
+              <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-5">
+                <div className="text-2xl">🔴</div>
+                <h2 className="mt-3 text-lg font-bold text-white">Critical Risk</h2>
+                <p className="mt-1.5 text-xs text-[#94a3b8] leading-relaxed">
+                  Hazardous air quality. Avoid prolonged outdoor exposure immediately.
+                </p>
+              </div>
 
             </div>
 
+            {/* INTERACTIVE LEAFLET + OPENSTREETMAP RISK VISUALIZATION */}
+            <div className="mt-8">
+              <PollutionLeafletMap
+                variant="public"
+                zones={geospatialData.zones || []}
+                heatmapPoints={geospatialData.heatmap_points || []}
+                onReportClick={() => handleSectionChange("report")}
+                height="540px"
+              />
+            </div>
 
-            {/* MAP */}
-
-            <div className="mt-8 flex min-h-[420px] items-center justify-center rounded-3xl border border-[#1e3445] bg-[#0d1726]">
-
-              <div className="text-center">
-
-                <div className="text-6xl">
-
-                  🗺️
-
+            {/* LIVE SENSOR TELEMETRY AT CURRENT LOCATION */}
+            <div className="mt-6 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white">
+                    Live Environmental Telemetry (Your Area)
+                  </h3>
+                  <p className="mt-1 text-xs text-[#64748b]">
+                    Real-time atmospheric sensor readings from nearest OpenAQ monitoring station
+                  </p>
                 </div>
-
-
-                <h2 className="mt-5 text-2xl font-bold">
-
-                  Environmental Monitoring Map
-
-                </h2>
-
-
-                <p className="mt-3 text-[#94a3b8]">
-
-                  Live pollution data will appear here.
-
-                </p>
-
-
-                <p className="mt-2 text-sm text-[#20e0c0]">
-
-                  Currently using mock data
-
-                </p>
-
+                <span className="rounded-full border border-[#20e0c0]/30 bg-[#20e0c0]/10 px-3 py-1 text-xs font-semibold text-[#20e0c0]">
+                  LIVE TELEMETRY
+                </span>
               </div>
 
+              {pollutionLoading ? (
+                <p className="mt-4 text-xs text-[#94a3b8]">Loading live telemetry data...</p>
+              ) : pollutionError ? (
+                <p className="mt-4 text-xs text-red-400">{pollutionError}</p>
+              ) : pollutionData ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4">
+                    <p className="text-xs text-[#64748b]">Station Location</p>
+                    <p className="mt-1.5 text-sm font-semibold text-white truncate">{pollutionData.location}</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">PM2.5</p>
+                    <p className="mt-1.5 text-xl font-bold text-[#20e0c0]">{pollutionData.pm25} <span className="text-xs text-[#64748b]">µg/m³</span></p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">PM10</p>
+                    <p className="mt-1.5 text-xl font-bold text-white">{pollutionData.pm10} <span className="text-xs text-[#64748b]">µg/m³</span></p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">NO₂</p>
+                    <p className="mt-1.5 text-xl font-bold text-[#38bdf8]">{pollutionData.no2} <span className="text-xs text-[#64748b]">µg/m³</span></p>
+                  </div>
+                  <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 text-center">
+                    <p className="text-xs text-[#64748b]">Calculated Risk</p>
+                    <p className="mt-1.5 text-xl font-bold text-[#20e0c0]">{pollutionData.risk}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-xs text-[#94a3b8]">No telemetry data available.</p>
+              )}
             </div>
 
 
@@ -1206,7 +1231,7 @@ function PublicDashboard() {
 
                             <p className="mt-3 text-sm text-[#94a3b8]">
 
-                              Submitted on {report.submittedAt}
+                              Submitted on {new Date(report.timestamp).toLocaleString()}
 
                             </p>
 
@@ -1245,7 +1270,7 @@ function PublicDashboard() {
 
                             <p className="mt-2 font-semibold">
 
-                              {report.pollutionType}
+                              {report.pollution_type}
 
                             </p>
 

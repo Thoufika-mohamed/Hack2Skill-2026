@@ -1,201 +1,247 @@
-import { useEffect, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+} from "react"
+
+import {
+  useSearchParams,
+} from "react-router-dom"
+
 import Sidebar from "../../components/Sidebar"
+import {
+  getReports,
+  updateReportStatus,
+  getPollutionData,
+  getGeospatialMapData,
+} from "../../services/api"
+import PollutionLeafletMap from "../../components/map/PollutionLeafletMap"
+import CitizenReportDetailsModal from "../../components/CitizenReportDetailsModal"
+
+
 
 function OfficialDashboard() {
+  const [monitorData, setMonitorData] = useState(null)
+const [monitorLoading, setMonitorLoading] = useState(false)
+const [monitorError, setMonitorError] = useState("")
 
-  // =====================================================
-  // SIDEBAR
-  // =====================================================
-
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-
-  // =====================================================
+  // =========================================================
   // URL VIEW
-  // =====================================================
+  // =========================================================
 
-  const [searchParams] = useSearchParams()
+  const [
+    searchParams,
+    setSearchParams,
+  ] = useSearchParams()
 
   const view =
-    searchParams.get("view") || "overview"
+    searchParams.get("view") ||
+    "overview"
 
-  // =====================================================
+
+  // =========================================================
+  // SIDEBAR
+  // =========================================================
+
+  const [
+    sidebarOpen,
+    setSidebarOpen,
+  ] = useState(false)
+
+
+  // =========================================================
   // OFFICIAL NAME
-  // =====================================================
+  // =========================================================
 
   const userName =
-    localStorage.getItem("aeroShieldUserName") ||
-    "Official"
+    localStorage.getItem(
+      "aeroShieldUserName"
+    ) || "Official"
 
-  // =====================================================
-  // COMPLAINTS
-  // =====================================================
+
+  // =========================================================
+  // CITIZEN REPORTS & AUTO-REFRESH
+  // =========================================================
 
   const [reports, setReports] = useState([])
+  const [reportsLoading, setReportsLoading] = useState(false)
+  const [reportsError, setReportsError] = useState("")
+  const [selectedReport, setSelectedReport] = useState(null)
 
-  // =====================================================
-  // STATUS LIST
-  // =====================================================
+  // Report filter states
+  const [reportRiskFilter, setReportRiskFilter] = useState("All")
+  const [reportStatusFilter, setReportStatusFilter] = useState("All")
+  const [reportSearchQuery, setReportSearchQuery] = useState("")
 
-  const statuses = [
-    "Pending",
-    "Under Review",
-    "In Progress",
-    "Resolved",
-  ]
-
-  // =====================================================
-  // LOAD COMPLAINTS
-  // =====================================================
-
-  const loadReports = () => {
-
+  const loadReports = useCallback(async () => {
     try {
+      setReportsLoading(true)
+      setReportsError("")
+      const data = await getReports()
+      console.log("OFFICIAL DASHBOARD LOADED REPORTS:", data)
+      setReports(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error("Failed to load reports in Official Dashboard:", error)
+      setReportsError("Unable to load citizen reports from backend")
+    } finally {
+      setReportsLoading(false)
+    }
+  }, [])
 
-      const savedReports =
-        JSON.parse(
-          localStorage.getItem(
-            "aeroShieldReports"
-          ) || "[]"
+  useEffect(() => {
+    loadReports()
+    // Poll every 10 seconds for real-time synchronization with citizen submissions
+    const interval = setInterval(loadReports, 10000)
+    return () => clearInterval(interval)
+  }, [loadReports])
+
+useEffect(() => {
+  if (view !== "monitor") {
+    return
+  }
+
+  const loadMonitorData = () => {
+
+    if (!navigator.geolocation) {
+      setMonitorError(
+        "Location access is not supported by your browser."
+      )
+      return
+    }
+
+    setMonitorLoading(true)
+    setMonitorError("")
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+
+        try {
+
+          const data = await getPollutionData(
+            position.coords.latitude,
+            position.coords.longitude
+          )
+
+          setMonitorData(data)
+
+        } catch (error) {
+
+          console.error(
+            "Failed to load monitoring data:",
+            error
+          )
+
+          setMonitorError(
+            "Unable to load live pollution data."
+          )
+
+        } finally {
+
+          setMonitorLoading(false)
+
+        }
+
+      },
+      () => {
+
+        setMonitorError(
+          "Location permission is required for live monitoring."
         )
 
-      setReports(
-        Array.isArray(savedReports)
-          ? savedReports
-          : []
-      )
+        setMonitorLoading(false)
 
-    } catch (error) {
-
-      console.error(
-        "Unable to load complaints:",
-        error
-      )
-
-      setReports([])
-
-    }
+      }
+    )
 
   }
 
-  // =====================================================
-  // INITIAL LOAD + LIVE UPDATE
-  // =====================================================
+  loadMonitorData()
 
-  useEffect(() => {
+}, [view])
 
-    loadReports()
+  // =========================================================
+  // GEOSPATIAL MAP DATA FOR OFFICIAL DASHBOARD
+  // =========================================================
 
-    const handleReportsUpdated = () => {
-      loadReports()
+  const [officialMapData, setOfficialMapData] = useState({ zones: [], heatmap_points: [] })
+  const [officialMapLoading, setOfficialMapLoading] = useState(false)
+
+  const loadOfficialMapData = useCallback(async () => {
+    try {
+      setOfficialMapLoading(true)
+      const data = await getGeospatialMapData("official")
+      setOfficialMapData(data)
+    } catch (error) {
+      console.error("Failed to load official map data:", error)
+    } finally {
+      setOfficialMapLoading(false)
     }
-
-    window.addEventListener(
-      "aeroShieldReportsUpdated",
-      handleReportsUpdated
-    )
-
-    return () => {
-
-      window.removeEventListener(
-        "aeroShieldReportsUpdated",
-        handleReportsUpdated
-      )
-
-    }
-
   }, [])
 
-  // =====================================================
-  // ALSO REFRESH WHEN TAB BECOMES ACTIVE
-  // =====================================================
-
   useEffect(() => {
+    loadOfficialMapData()
+    const interval = setInterval(loadOfficialMapData, 30000)
+    return () => clearInterval(interval)
+  }, [loadOfficialMapData])
 
-    const handleFocus = () => {
-      loadReports()
-    }
+  // =========================================================
+  // CHANGE VIEW
+  // =========================================================
 
-    window.addEventListener(
-      "focus",
-      handleFocus
-    )
-
-    return () => {
-
-      window.removeEventListener(
-        "focus",
-        handleFocus
-      )
-
-    }
-
-  }, [])
-
-  // =====================================================
-  // UPDATE COMPLAINT STATUS
-  // =====================================================
-
-  const updateStatus = (
-    complaintId,
-    newStatus
+  const changeView = (
+    newView
   ) => {
 
+    setSearchParams({
+      view: newView,
+    })
+
+  }
+
+
+  // =========================================================
+  // UPDATE REPORT STATUS
+  // =========================================================
+
+  const handleStatusChange = async (
+    reportId,
+    newStatus
+  ) => {
+    console.log("STATUS CHANGE:", reportId, newStatus)
+
     try {
+      console.log("SENDING PATCH:", reportId, newStatus)
 
-      const savedReports =
-        JSON.parse(
-          localStorage.getItem(
-            "aeroShieldReports"
-          ) || "[]"
+      const updatedReport =
+        await updateReportStatus(
+          reportId,
+          newStatus
         )
+      console.log("PATCH RESPONSE:", updatedReport)
 
-      if (!Array.isArray(savedReports)) {
-        return
-      }
-
-      const updatedReports =
-        savedReports.map((report) => {
-
-          const reportId =
-            report.id ||
-            report.complaintId
-
-          if (reportId === complaintId) {
-
-            return {
-              ...report,
-              status: newStatus,
-              updatedAt:
-                new Date().toLocaleString(),
-            }
-
-          }
-
-          return report
-
-        })
-
-      // Save the updated complaints
-      localStorage.setItem(
-        "aeroShieldReports",
-        JSON.stringify(updatedReports)
-      )
-
-      // Update official dashboard immediately
-      setReports(updatedReports)
-
-      // Notify public dashboard
-      window.dispatchEvent(
-        new Event(
-          "aeroShieldReportsUpdated"
+      setReports((currentReports) =>
+        currentReports.map((report) =>
+          report.id === reportId
+            ? { ...report, ...updatedReport, status: newStatus }
+            : report
         )
       )
+
+      setSelectedReport((current) => {
+        if (current && current.id === reportId) {
+          return { ...current, ...updatedReport, status: newStatus }
+        }
+        return current
+      })
+
+      loadOfficialMapData()
+      loadReports()
 
     } catch (error) {
 
       console.error(
-        "Unable to update complaint status:",
+        "PATCH ERROR:",
         error
       )
 
@@ -203,758 +249,663 @@ function OfficialDashboard() {
 
   }
 
-  // =====================================================
+
+  // =========================================================
+  // STATISTICS & FILTERED CITIZEN REPORTS
+  // =========================================================
+
+  const activeIncidents =
+    reports.filter(
+      (report) => (report.status || "").toLowerCase() !== "resolved"
+    ).length
+
+  const criticalCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "critical"
+    ).length
+
+  const highRiskCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "high"
+    ).length
+
+  const moderateCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "moderate"
+    ).length
+
+  const lowRiskCount =
+    reports.filter(
+      (report) => (report.risk || "").toLowerCase() === "low"
+    ).length
+
+  const underReviewCount =
+    reports.filter(
+      (report) => (report.status || "").toLowerCase() === "under review"
+    ).length
+
+  const resolvedCount =
+    reports.filter(
+      (report) => (report.status || "").toLowerCase() === "resolved"
+    ).length
+
+  // Filtered citizen reports supporting Risk, Status, and Search
+  const filteredCitizenReports = useMemo(() => {
+    return reports.filter((r) => {
+      // Risk filter
+      if (reportRiskFilter !== "All") {
+        const rRisk = (r.risk || "Low").toLowerCase()
+        if (rRisk !== reportRiskFilter.toLowerCase()) {
+          return false
+        }
+      }
+      // Status filter
+      if (reportStatusFilter !== "All") {
+        const rStatus = (r.status || "Pending").toLowerCase()
+        if (rStatus !== reportStatusFilter.toLowerCase()) {
+          return false
+        }
+      }
+      // Search query
+      if (reportSearchQuery.trim()) {
+        const q = reportSearchQuery.toLowerCase()
+        const loc = (r.location || "").toLowerCase()
+        const desc = (r.description || "").toLowerCase()
+        const type = (r.pollution_type || r.type || "").toLowerCase()
+        const idStr = String(r.id || "")
+        if (!loc.includes(q) && !desc.includes(q) && !type.includes(q) && !idStr.includes(q)) {
+          return false
+        }
+      }
+      return true
+    })
+  }, [reports, reportRiskFilter, reportStatusFilter, reportSearchQuery])
+
+
+  // =========================================================
   // STATUS STYLE
-  // =====================================================
+  // =========================================================
 
-  const getStatusClass = (status) => {
+  const getStatusStyle = (
+    status
+  ) => {
 
-    if (status === "Pending") {
-
-      return "border-blue-500/30 bg-blue-500/10 text-blue-400"
-
-    }
-
-    if (status === "Under Review") {
-
-      return "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-
-    }
-
-    if (status === "In Progress") {
-
-      return "border-orange-500/30 bg-orange-500/10 text-orange-400"
-
-    }
-
-    if (status === "Resolved") {
+    if (
+      status ===
+      "Resolved"
+    ) {
 
       return "border-green-500/30 bg-green-500/10 text-green-400"
 
     }
 
-    return "border-[#1e3445] bg-[#08121f] text-[#94a3b8]"
+    if (
+      status ===
+      "In Progress"
+    ) {
+
+      return "border-blue-500/30 bg-blue-500/10 text-blue-400"
+
+    }
+
+    if (
+      status ===
+      "Under Review"
+    ) {
+
+      return "border-purple-500/30 bg-purple-500/10 text-purple-400"
+
+    }
+
+    if (
+      status ===
+      "Critical"
+    ) {
+
+      return "border-red-500/30 bg-red-500/10 text-red-400"
+
+    }
+
+    if (
+      status ===
+      "High Risk"
+    ) {
+
+      return "border-orange-500/30 bg-orange-500/10 text-orange-400"
+
+    }
+
+    return "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
 
   }
 
-  // =====================================================
-  // COUNTS
-  // =====================================================
 
-  const totalComplaints =
-    reports.length
-
-  const pendingCount =
-    reports.filter(
-      (report) =>
-        (report.status || "Pending") ===
-        "Pending"
-    ).length
-
-  const underReviewCount =
-    reports.filter(
-      (report) =>
-        report.status ===
-        "Under Review"
-    ).length
-
-  const inProgressCount =
-    reports.filter(
-      (report) =>
-        report.status ===
-        "In Progress"
-    ).length
-
-  const resolvedCount =
-    reports.filter(
-      (report) =>
-        report.status ===
-        "Resolved"
-    ).length
-
-  const activeIncidents =
-    reports.filter(
-      (report) =>
-        (report.status || "Pending") !==
-        "Resolved"
-    ).length
-
-  // Keep compatibility with your existing dashboard
-  const criticalCount =
-    reports.filter(
-      (report) =>
-        report.status === "Critical"
-    ).length
-
-  const highRiskCount =
-    reports.filter(
-      (report) =>
-        report.status === "High Risk"
-    ).length
-
-  // =====================================================
+  // =========================================================
   // REPORT TYPE
-  // =====================================================
+  // =========================================================
 
-  const getReportType = (report) => {
+  const getReportType = (
+    report
+  ) => {
 
     return (
-      report.pollutionType ||
+      report.pollution_type ||
       report.type ||
-      "Environmental incident"
+      report.pollutionType ||
+      "Air Pollution"
     )
 
   }
 
-  // =====================================================
-  // OVERVIEW
-  // =====================================================
 
-  const renderOverview = () => {
+  // =========================================================
+  // REPORT EMAIL
+  // =========================================================
+
+  const getReportEmail = (
+    report
+  ) => {
+
+    return (
+      report.email ||
+      report.userEmail ||
+      "No email"
+    )
+
+  }
+
+
+  // =========================================================
+  // REPORT DATE
+  // =========================================================
+
+  const getReportDate = (
+    report
+  ) => {
+
+    const rawDate =
+      report.timestamp ||
+      report.createdAt ||
+      report.submittedAt ||
+      report.date ||
+      report.updatedAt
+
+    if (!rawDate) {
+      return "Date unavailable"
+    }
+
+    try {
+      const parsed = new Date(rawDate)
+      return isNaN(parsed.getTime()) ? rawDate : parsed.toLocaleString()
+    } catch {
+      return rawDate
+    }
+
+  }
+
+
+  // =========================================================
+  // OVERVIEW
+  // =========================================================
+
+  const renderOverview =
+    () => {
+
+      return (
+
+        <>
+
+          {/* HEADER */}
+
+          <div>
+
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
+              Official Control Center
+            </p>
+
+            <h1 className="mt-3 text-4xl font-bold sm:text-5xl">
+
+              Welcome,{" "}
+
+              <span className="text-[#38bdf8]">
+                {userName}
+              </span>
+
+              {" "}👋
+
+            </h1>
+
+            <p className="mt-3 max-w-2xl text-lg leading-8 text-[#94a3b8]">
+              Monitor environmental conditions,
+              review public complaints, and
+              coordinate response actions.
+            </p>
+
+          </div>
+
+
+          {/* STATISTICS */}
+
+          <div className="mt-10 grid gap-5 md:grid-cols-4">
+
+            {/* ACTIVE */}
+
+            <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5">
+
+              <p className="text-xs font-medium text-[#64748b]">
+                ACTIVE INCIDENTS
+              </p>
+
+              <p className="mt-3 text-3xl font-bold">
+                {activeIncidents}
+              </p>
+
+            </div>
+
+
+            {/* CRITICAL */}
+
+            <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-5">
+
+              <p className="text-xs font-medium text-[#64748b]">
+                CRITICAL
+              </p>
+
+              <p className="mt-3 text-3xl font-bold text-red-400">
+                {criticalCount}
+              </p>
+
+            </div>
+
+
+            {/* HIGH RISK */}
+
+            <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-5">
+
+              <p className="text-xs font-medium text-[#64748b]">
+                HIGH RISK
+              </p>
+
+              <p className="mt-3 text-3xl font-bold text-orange-400">
+                {highRiskCount}
+              </p>
+
+            </div>
+
+
+            {/* TOTAL */}
+
+            <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#0d1726] p-5">
+
+              <p className="text-xs font-medium text-[#64748b]">
+                TOTAL COMPLAINTS
+              </p>
+
+              <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
+                {reports.length}
+              </p>
+
+            </div>
+
+          </div>
+
+
+          {/* LIVE MAP */}
+
+          <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  Live Pollution Hotspots
+                </h2>
+                <p className="mt-1 text-sm text-[#64748b]">
+                  Regional environmental incidents, active zones, and real-time sensor stations.
+                </p>
+              </div>
+              <button
+                onClick={() => changeView("monitor")}
+                className="rounded-xl bg-[#38bdf8] px-4 py-2 text-xs font-bold text-[#02120f] transition hover:brightness-110 shadow-md"
+              >
+                Open Operational Control Center →
+              </button>
+            </div>
+
+            <PollutionLeafletMap
+              variant="public"
+              zones={officialMapData.zones || []}
+              heatmapPoints={officialMapData.heatmap_points || []}
+              height="380px"
+            />
+
+          </div>
+
+
+          {/* RECENT CITIZEN REPORTS */}
+          <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  Recent Citizen Reports
+                </h2>
+                <p className="mt-1 text-sm text-[#64748b]">
+                  Latest public pollution complaints submitted via the citizen portal.
+                </p>
+              </div>
+              <button
+                onClick={() => changeView("respond")}
+                className="rounded-xl border border-[#1e3445] bg-[#08121f] px-4 py-2 text-xs font-bold text-[#38bdf8] hover:border-[#38bdf8] transition"
+              >
+                View All {reports.length} Reports →
+              </button>
+            </div>
+
+            {reports.length === 0 ? (
+              <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-8 text-center text-[#64748b] text-sm">
+                No citizen reports received yet.
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {reports.slice(0, 6).map((report) => {
+                  const rRisk = report.risk || "Low"
+                  const rStatus = report.status || "Pending"
+                  return (
+                    <div
+                      key={report.id}
+                      onClick={() => setSelectedReport(report)}
+                      className="cursor-pointer rounded-2xl border border-[#1e3445] bg-[#08121f] p-4 transition hover:-translate-y-0.5 hover:border-[#38bdf8]/50"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-bold text-[#38bdf8]">
+                          #{report.id}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold border ${
+                              rRisk === "Critical"
+                                ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                : rRisk === "High"
+                                ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
+                                : rRisk === "Moderate"
+                                ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                            }`}
+                          >
+                            {rRisk}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold border ${getStatusStyle(
+                              rStatus
+                            )}`}
+                          >
+                            {rStatus}
+                          </span>
+                        </div>
+                      </div>
+
+                      <h4 className="mt-2 text-sm font-bold text-white truncate">
+                        {getReportType(report)}
+                      </h4>
+                      <p className="mt-1 text-xs text-[#cbd5e1] truncate">
+                        📍 {report.location || "Location not specified"}
+                      </p>
+                      {report.description && (
+                        <p className="mt-2 text-xs text-[#94a3b8] line-clamp-2 italic">
+                          "{report.description}"
+                        </p>
+                      )}
+                      <div className="mt-3 flex items-center justify-between pt-2 border-t border-[#1e3445]/50 text-[11px] text-[#64748b]">
+                        <span>{getReportDate(report)}</span>
+                        <span className="text-[#38bdf8] font-medium hover:underline">
+                          View details →
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+
+          {/* COMPLAINT SUMMARY */}
+
+          <div className="mt-7 grid gap-5 md:grid-cols-3">
+
+            <button
+              onClick={() =>
+                changeView(
+                  "respond"
+                )
+              }
+              className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6 text-left transition hover:-translate-y-1 hover:border-red-500/40"
+            >
+
+              <p className="text-3xl">
+                🚨
+              </p>
+
+              <h3 className="mt-4 text-lg font-bold">
+                Priority Incidents
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-[#64748b]">
+                Review complaints that require
+                official attention and response.
+              </p>
+
+            </button>
+
+
+            <button
+              onClick={() =>
+                changeView(
+                  "analyse"
+                )
+              }
+              className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6 text-left transition hover:-translate-y-1 hover:border-[#38bdf8]/50"
+            >
+
+              <p className="text-3xl">
+                📊
+              </p>
+
+              <h3 className="mt-4 text-lg font-bold">
+                Pollution Analysis
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-[#64748b]">
+                Analyse risk levels, trends and
+                complaint patterns.
+              </p>
+
+            </button>
+
+
+            <button
+              onClick={() =>
+                changeView(
+                  "monitor"
+                )
+              }
+              className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6 text-left transition hover:-translate-y-1 hover:border-[#20e0c0]/50"
+            >
+
+              <p className="text-3xl">
+                🗺️
+              </p>
+
+              <h3 className="mt-4 text-lg font-bold">
+                Monitor Region
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-[#64748b]">
+                View environmental hotspots and
+                monitoring information.
+              </p>
+
+            </button>
+
+          </div>
+
+        </>
+
+      )
+
+    }
+
+
+  // =========================================================
+  // MONITOR VIEW
+  // =========================================================
+const renderMonitor =
+  () => {
 
     return (
 
-      <>
+      <div>
 
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
-          Official Control Center
+          MONITOR
         </p>
 
-
-        <h1 className="mt-3 text-4xl font-bold sm:text-5xl">
-
-          Welcome,{" "}
-
-          <span className="text-[#38bdf8]">
-            {userName}
-          </span>
-
-          {" "}👋
-
+        <h1 className="mt-3 text-4xl font-bold">
+          Environmental Monitoring
         </h1>
 
-
-        <p className="mt-3 max-w-2xl text-lg leading-8 text-[#94a3b8]">
-          Monitor environmental conditions and coordinate response actions.
+        <p className="mt-3 max-w-2xl text-lg text-[#94a3b8]">
+          Monitor pollution hotspots,
+          environmental conditions and
+          active incidents across the region.
         </p>
 
 
-        {/* =================================================
-            STATISTICS
-        ================================================= */}
+        {/* LIVE POLLUTION */}
 
-        <div className="mt-10 grid gap-5 md:grid-cols-4">
+        {/* OPERATIONAL POLLUTION CONTROL MAP */}
+        <div className="mt-8">
+          <PollutionLeafletMap
+            variant="official"
+            zones={officialMapData.zones || []}
+            heatmapPoints={officialMapData.heatmap_points || []}
+            onUpdateStatus={handleStatusChange}
+            height="620px"
+          />
+        </div>
+
+        {/* REGIONAL SENSOR TELEMETRY */}
+        <div className="mt-8 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">
+                Live Sensor Station Telemetry
+              </h2>
+              <p className="mt-1 text-sm text-[#64748b]">
+                Real-time atmospheric readings from regional monitoring stations.
+              </p>
+            </div>
+
+            <span className="rounded-full border border-[#20e0c0]/30 bg-[#20e0c0]/10 px-3 py-1 text-xs font-semibold text-[#20e0c0]">
+              STATION TELEMETRY
+            </span>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-6">
+            {monitorLoading ? (
+              <div className="flex h-36 items-center justify-center">
+                <p className="text-[#94a3b8]">
+                  Loading station readings...
+                </p>
+              </div>
+            ) : monitorError ? (
+              <div className="flex h-36 items-center justify-center">
+                <p className="text-red-400">
+                  {monitorError}
+                </p>
+              </div>
+            ) : monitorData ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 text-center">
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4 text-left">
+                  <p className="text-xs text-[#64748b]">Detected Station</p>
+                  <p className="mt-1 font-semibold text-white truncate">
+                    {monitorData.location || "Coimbatore Regional Station"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">PM2.5</p>
+                  <p className="mt-1 text-2xl font-bold text-[#20e0c0]">
+                    {monitorData.pm25 ?? "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">PM10</p>
+                  <p className="mt-1 text-2xl font-bold text-white">
+                    {monitorData.pm10 ?? "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">NO₂</p>
+                  <p className="mt-1 text-2xl font-bold text-[#38bdf8]">
+                    {monitorData.no2 ?? "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-4">
+                  <p className="text-xs text-[#64748b]">Risk Status</p>
+                  <p className="mt-1 text-2xl font-bold text-[#20e0c0]">
+                    {monitorData.risk || "Normal"}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-36 items-center justify-center">
+                <p className="text-[#94a3b8]">
+                  Monitoring data unavailable.
+                </p>
+              </div>
+            )}
+          </div>
+
+        </div>
 
 
-          {/* ACTIVE */}
+        {/* MONITOR STATS */}
 
-          <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5">
+        <div className="mt-6 grid gap-5 md:grid-cols-3">
 
-            <p className="text-xs font-medium text-[#64748b]">
-              ACTIVE INCIDENTS
+          <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6">
+
+            <p className="text-xs uppercase tracking-wider text-[#64748b]">
+              Active Areas
             </p>
 
-            <p className="mt-3 text-3xl font-bold">
+            <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
               {activeIncidents}
             </p>
 
-          </div>
-
-
-          {/* CRITICAL */}
-
-          <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              CRITICAL
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-red-400">
-              {criticalCount}
+            <p className="mt-2 text-sm text-[#64748b]">
+              Areas requiring monitoring
             </p>
 
           </div>
 
 
-          {/* HIGH RISK */}
+          <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-6">
 
-          <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              HIGH RISK
+            <p className="text-xs uppercase tracking-wider text-[#64748b]">
+              High Risk
             </p>
 
             <p className="mt-3 text-3xl font-bold text-orange-400">
               {highRiskCount}
             </p>
 
-          </div>
-
-
-          {/* TOTAL */}
-
-          <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              TOTAL REPORTS
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
-              {totalComplaints}
-            </p>
-
-          </div>
-
-        </div>
-
-
-        {/* =================================================
-            LIVE MAP
-        ================================================= */}
-
-        <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
-
-          <h2 className="text-xl font-bold">
-            Live Pollution Hotspots
-          </h2>
-
-          <p className="mt-1 text-sm text-[#64748b]">
-            Monitor environmental incidents across the region.
-          </p>
-
-
-          <div className="mt-6 flex h-96 items-center justify-center rounded-2xl border border-[#1e3445] bg-[#08121f]">
-
-            <div className="text-center">
-
-              <div className="text-5xl">
-                🗺️
-              </div>
-
-              <p className="mt-4 font-semibold">
-                Environmental Monitoring Map
-              </p>
-
-              <p className="mt-2 text-sm text-[#64748b]">
-                Live map integration will be added next.
-              </p>
-
-            </div>
-
-          </div>
-
-        </div>
-
-
-        {/* =================================================
-            COMPLAINT HISTORY
-            KEEPING THIS IN OVERVIEW
-        ================================================= */}
-
-        <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
-
-          <div className="flex items-center justify-between">
-
-            <div>
-
-              <h2 className="text-xl font-bold">
-                Complaint History
-              </h2>
-
-              <p className="mt-1 text-sm text-[#64748b]">
-                Reports submitted by public users.
-              </p>
-
-            </div>
-
-            <div className="rounded-lg bg-[#08121f] px-4 py-2 text-sm text-[#38bdf8]">
-              {totalComplaints} Reports
-            </div>
-
-          </div>
-
-
-          {reports.length === 0 ? (
-
-            <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-10 text-center">
-
-              <div className="text-4xl">
-                📋
-              </div>
-
-              <p className="mt-4 font-semibold">
-                No complaints yet
-              </p>
-
-              <p className="mt-2 text-sm text-[#64748b]">
-                Public complaints will appear here when submitted.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="mt-6 overflow-x-auto">
-
-              <table className="w-full min-w-[900px] text-left">
-
-                <thead>
-
-                  <tr className="border-b border-[#1e3445] text-xs uppercase tracking-wider text-[#64748b]">
-
-                    <th className="px-4 py-4">
-                      Complaint ID
-                    </th>
-
-                    <th className="px-4 py-4">
-                      Citizen
-                    </th>
-
-                    <th className="px-4 py-4">
-                      Type
-                    </th>
-
-                    <th className="px-4 py-4">
-                      Location
-                    </th>
-
-                    <th className="px-4 py-4">
-                      Status
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-
-                <tbody>
-
-                  {reports.map((report) => {
-
-                    const reportId =
-                      report.id ||
-                      report.complaintId
-
-                    const status =
-                      report.status ||
-                      "Pending"
-
-                    return (
-
-                      <tr
-                        key={reportId}
-                        className="border-b border-[#1e3445] last:border-0 hover:bg-[#08121f]"
-                      >
-
-                        <td className="px-4 py-5">
-
-                          <p className="font-semibold text-[#38bdf8]">
-                            {reportId}
-                          </p>
-
-                        </td>
-
-
-                        <td className="px-4 py-5">
-
-                          <p className="font-medium">
-                            {report.userName ||
-                              "Public User"}
-                          </p>
-
-                          <p className="mt-1 text-xs text-[#64748b]">
-                            {report.email ||
-                              report.userEmail ||
-                              "No email"}
-                          </p>
-
-                        </td>
-
-
-                        <td className="px-4 py-5 text-sm">
-                          {getReportType(report)}
-                        </td>
-
-
-                        <td className="px-4 py-5 text-sm text-[#cbd5e1]">
-                          {report.location ||
-                            "Not specified"}
-                        </td>
-
-
-                        <td className="px-4 py-5">
-
-                          <span
-                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getStatusClass(
-                              status
-                            )}`}
-                          >
-                            {status}
-                          </span>
-
-                        </td>
-
-                      </tr>
-
-                    )
-
-                  })}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
-          )}
-
-        </div>
-
-      </>
-
-    )
-
-  }
-
-
-  // =====================================================
-  // MONITOR PAGE
-  // =====================================================
-
-  const renderMonitor = () => {
-
-    return (
-
-      <section>
-
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
-          MONITOR
-        </p>
-
-
-        <h1 className="mt-3 text-4xl font-bold sm:text-5xl">
-          Environmental Monitoring
-        </h1>
-
-
-        <p className="mt-3 max-w-3xl text-lg leading-8 text-[#94a3b8]">
-          Monitor complaint activity and environmental incidents across the platform.
-        </p>
-
-
-        {/* =================================================
-            MONITOR STATISTICS
-        ================================================= */}
-
-        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-5">
-
-
-          {/* TOTAL */}
-
-          <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              TOTAL
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
-              {totalComplaints}
-            </p>
-
-            <p className="mt-2 text-xs text-[#64748b]">
-              All citizen complaints
-            </p>
-
-          </div>
-
-
-          {/* PENDING */}
-
-          <div className="rounded-2xl border border-blue-500/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              PENDING
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-blue-400">
-              {pendingCount}
-            </p>
-
-            <p className="mt-2 text-xs text-[#64748b]">
-              Awaiting review
-            </p>
-
-          </div>
-
-
-          {/* UNDER REVIEW */}
-
-          <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              UNDER REVIEW
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-yellow-400">
-              {underReviewCount}
-            </p>
-
-            <p className="mt-2 text-xs text-[#64748b]">
-              Being assessed
-            </p>
-
-          </div>
-
-
-          {/* IN PROGRESS */}
-
-          <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              IN PROGRESS
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-orange-400">
-              {inProgressCount}
-            </p>
-
-            <p className="mt-2 text-xs text-[#64748b]">
-              Action underway
-            </p>
-
-          </div>
-
-
-          {/* RESOLVED */}
-
-          <div className="rounded-2xl border border-green-500/20 bg-[#0d1726] p-5">
-
-            <p className="text-xs font-medium text-[#64748b]">
-              RESOLVED
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-green-400">
-              {resolvedCount}
-            </p>
-
-            <p className="mt-2 text-xs text-[#64748b]">
-              Successfully resolved
-            </p>
-
-          </div>
-
-        </div>
-
-
-        {/* =================================================
-            RESOLUTION RATE
-        ================================================= */}
-
-        <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-7">
-
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-
-            <div>
-
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#20e0c0]">
-                Resolution Performance
-              </p>
-
-              <h2 className="mt-2 text-2xl font-bold">
-                Complaint resolution rate
-              </h2>
-
-            </div>
-
-
-            <div className="text-4xl font-bold text-[#20e0c0]">
-
-              {totalComplaints === 0
-                ? 0
-                : Math.round(
-                    (resolvedCount /
-                      totalComplaints) *
-                      100
-                  )}
-
-              %
-
-            </div>
-
-          </div>
-
-
-          <div className="mt-6 h-4 overflow-hidden rounded-full bg-[#08121f]">
-
-            <div
-              className="h-full rounded-full bg-[#20e0c0] transition-all duration-500"
-              style={{
-                width: `${
-                  totalComplaints === 0
-                    ? 0
-                    : Math.round(
-                        (resolvedCount /
-                          totalComplaints) *
-                          100
-                      )
-                }%`,
-              }}
-            />
-
-          </div>
-
-        </div>
-
-
-        {/* =================================================
-            MONITOR TABLE
-        ================================================= */}
-
-        <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
-
-          <div className="flex items-center justify-between">
-
-            <div>
-
-              <h2 className="text-xl font-bold">
-                Complaint Monitoring
-              </h2>
-
-              <p className="mt-1 text-sm text-[#64748b]">
-                Current status of all environmental complaints.
-              </p>
-
-            </div>
-
-            <span className="rounded-lg bg-[#08121f] px-4 py-2 text-sm text-[#38bdf8]">
-              {totalComplaints} Total
-            </span>
-
-          </div>
-
-
-          {reports.length === 0 ? (
-
-            <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-10 text-center">
-
-              <div className="text-4xl">
-                📊
-              </div>
-
-              <p className="mt-4 font-semibold">
-                No complaints to monitor
-              </p>
-
-              <p className="mt-2 text-sm text-[#64748b]">
-                New public complaints will appear here.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="mt-6 space-y-4">
-
-              {reports
-                .slice()
-                .reverse()
-                .map((report) => {
-
-                  const reportId =
-                    report.id ||
-                    report.complaintId
-
-                  const status =
-                    report.status ||
-                    "Pending"
-
-                  return (
-
-                    <div
-                      key={reportId}
-                      className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5"
-                    >
-
-                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-
-                        <div>
-
-                          <p className="text-sm font-semibold text-[#38bdf8]">
-                            {reportId}
-                          </p>
-
-                          <h3 className="mt-2 font-bold">
-                            {getReportType(report)}
-                          </h3>
-
-                          <p className="mt-1 text-sm text-[#64748b]">
-                            📍 {report.location ||
-                              "Location unavailable"}
-                          </p>
-
-                        </div>
-
-
-                        <div className="flex items-center gap-3">
-
-                          <span
-                            className={`rounded-full border px-4 py-2 text-xs font-semibold ${getStatusClass(
-                              status
-                            )}`}
-                          >
-                            {status}
-                          </span>
-
-                        </div>
-
-                      </div>
-
-                    </div>
-
-                  )
-
-                })}
-
-            </div>
-
-          )}
-
-        </div>
-
-      </section>
-
-    )
-
-  }
-
-
-  // =====================================================
-  // ANALYSE
-  // =====================================================
-
-  const renderAnalyse = () => {
-
-    return (
-
-      <section className="mt-10">
-
-        {/* Analysis overview */}
-
-        <div className="grid gap-5 md:grid-cols-3">
-
-
-          <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#0d1726] p-6">
-
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              Reports Analysed
-            </p>
-
-            <p className="mt-3 text-4xl font-bold text-[#38bdf8]">
-              {totalComplaints}
-            </p>
-
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Citizen pollution reports available for analysis.
+            <p className="mt-2 text-sm text-[#64748b]">
+              High-risk reports
             </p>
 
           </div>
@@ -962,322 +913,104 @@ function OfficialDashboard() {
 
           <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-6">
 
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              Critical Risk
+            <p className="text-xs uppercase tracking-wider text-[#64748b]">
+              Critical
             </p>
 
-            <p className="mt-3 text-4xl font-bold text-red-400">
+            <p className="mt-3 text-3xl font-bold text-red-400">
               {criticalCount}
             </p>
 
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Incidents requiring immediate attention.
-            </p>
-
-          </div>
-
-
-          <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-6">
-
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              High Risk
-            </p>
-
-            <p className="mt-3 text-4xl font-bold text-orange-400">
-              {highRiskCount}
-            </p>
-
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Incidents requiring further investigation.
+            <p className="mt-2 text-sm text-[#64748b]">
+              Critical incidents
             </p>
 
           </div>
 
         </div>
 
-
-        {/* AI ANALYSIS */}
-
-        <div className="mt-7 rounded-3xl border border-[#38bdf8]/20 bg-[#0d1726] p-7">
-
-          <div className="flex items-start gap-4">
-
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#38bdf8]/10 text-2xl">
-              🧠
-            </div>
-
-            <div>
-
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
-                AI Environmental Analysis
-              </p>
-
-              <h2 className="mt-2 text-2xl font-bold">
-                Pollution risk intelligence
-              </h2>
-
-              <p className="mt-3 max-w-3xl leading-7 text-[#94a3b8]">
-                This section is designed to combine citizen reports,
-                environmental measurements, and AI analysis to identify
-                pollution patterns and potential high-risk zones.
-              </p>
-
-            </div>
-
-          </div>
-
-
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
-
-
-            <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5">
-
-              <p className="text-sm font-semibold">
-                Pollution Pattern
-              </p>
-
-              <p className="mt-3 text-sm leading-6 text-[#64748b]">
-                Identify repeated pollution reports from similar
-                locations and categories.
-              </p>
-
-            </div>
-
-
-            <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5">
-
-              <p className="text-sm font-semibold">
-                Risk Assessment
-              </p>
-
-              <p className="mt-3 text-sm leading-6 text-[#64748b]">
-                Prioritize incidents based on reported severity
-                and environmental conditions.
-              </p>
-
-            </div>
-
-
-            <div className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5">
-
-              <p className="text-sm font-semibold">
-                Recommended Investigation
-              </p>
-
-              <p className="mt-3 text-sm leading-6 text-[#64748b]">
-                Highlight locations that may require verification
-                or field inspection.
-              </p>
-
-            </div>
-
-          </div>
-
-        </div>
-
-
-        {/* REPORTS FOR ANALYSIS */}
-
-        <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
-
-          <h2 className="text-xl font-bold">
-            Reports Requiring Analysis
-          </h2>
-
-          <p className="mt-1 text-sm text-[#64748b]">
-            Review citizen observations before taking action.
-          </p>
-
-
-          {reports.length === 0 ? (
-
-            <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-8 text-center">
-
-              <p className="text-3xl">
-                🔎
-              </p>
-
-              <p className="mt-3 font-semibold">
-                No reports available
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="mt-6 space-y-4">
-
-              {reports
-                .slice()
-                .reverse()
-                .slice(0, 8)
-                .map((report) => (
-
-                  <div
-                    key={
-                      report.id ||
-                      report.complaintId
-                    }
-                    className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5"
-                  >
-
-                    <div className="flex flex-col justify-between gap-3 md:flex-row">
-
-                      <div>
-
-                        <p className="font-semibold text-[#38bdf8]">
-                          {report.id ||
-                            report.complaintId}
-                        </p>
-
-                        <p className="mt-2 font-medium">
-                          {getReportType(report)}
-                        </p>
-
-                        <p className="mt-1 text-sm text-[#64748b]">
-                          {report.location ||
-                            "Location unavailable"}
-                        </p>
-
-                      </div>
-
-
-                      <span className="h-fit rounded-full bg-[#38bdf8]/10 px-3 py-1 text-xs font-semibold text-[#38bdf8]">
-                        {report.status ||
-                          "Pending"}
-                      </span>
-
-                    </div>
-
-                  </div>
-
-                ))}
-
-            </div>
-
-          )}
-
-        </div>
-
-      </section>
+      </div>
 
     )
 
   }
 
+  // =========================================================
+  // ANALYSE VIEW
+  // =========================================================
 
-  // =====================================================
-  // RESPOND / ACT
-  // =====================================================
+  const renderAnalyse =
+    () => {
 
-  const renderRespond = () => {
+      return (
 
-    return (
+        <div>
 
-      <section className="mt-10">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
+            ANALYSE
+          </p>
 
-        {/* =================================================
-            RESPONSE STATISTICS
-        ================================================= */}
+          <h1 className="mt-3 text-4xl font-bold">
+            Pollution Analysis
+          </h1>
 
-        <div className="grid gap-5 md:grid-cols-4">
-
-
-          <div className="rounded-2xl border border-blue-500/20 bg-[#0d1726] p-6">
-
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              Pending
-            </p>
-
-            <p className="mt-3 text-4xl font-bold text-blue-400">
-              {pendingCount}
-            </p>
-
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Awaiting official review.
-            </p>
-
-          </div>
+          <p className="mt-3 max-w-2xl text-lg text-[#94a3b8]">
+            Understand pollution patterns,
+            risk levels and complaint activity.
+          </p>
 
 
-          <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-6">
+          {/* ANALYSIS CARDS */}
 
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              Under Review
-            </p>
+          <div className="mt-8 grid gap-5 md:grid-cols-4">
 
-            <p className="mt-3 text-4xl font-bold text-yellow-400">
-              {underReviewCount}
-            </p>
+            <div className="rounded-2xl border border-[#1e3445] bg-[#0d1726] p-6">
 
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Currently being assessed.
-            </p>
-
-          </div>
-
-
-          <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-6">
-
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              In Progress
-            </p>
-
-            <p className="mt-3 text-4xl font-bold text-orange-400">
-              {inProgressCount}
-            </p>
-
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Response action underway.
-            </p>
-
-          </div>
-
-
-          <div className="rounded-2xl border border-green-500/20 bg-[#0d1726] p-6">
-
-            <p className="text-xs uppercase tracking-widest text-[#64748b]">
-              Resolved
-            </p>
-
-            <p className="mt-3 text-4xl font-bold text-green-400">
-              {resolvedCount}
-            </p>
-
-            <p className="mt-2 text-sm text-[#94a3b8]">
-              Successfully resolved.
-            </p>
-
-          </div>
-
-        </div>
-
-
-        {/* =================================================
-            RESPONSE CENTER
-        ================================================= */}
-
-        <div className="mt-7 rounded-3xl border border-[#20e0c0]/20 bg-[#0d1726] p-7">
-
-          <div className="flex items-start gap-4">
-
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#20e0c0]/10 text-2xl">
-              ⚡
-            </div>
-
-            <div>
-
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#20e0c0]">
-                Authority Response Center
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Total Reports
               </p>
 
-              <h2 className="mt-2 text-2xl font-bold">
-                Prioritize and act on incidents
-              </h2>
+              <p className="mt-3 text-3xl font-bold text-[#38bdf8]">
+                {reports.length}
+              </p>
 
-              <p className="mt-3 max-w-3xl leading-7 text-[#94a3b8]">
-                Review citizen complaints and update their status as
-                the authority takes action.
+            </div>
+
+
+            <div className="rounded-2xl border border-purple-500/20 bg-[#0d1726] p-6">
+
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Under Review
+              </p>
+
+              <p className="mt-3 text-3xl font-bold text-purple-400">
+                {underReviewCount}
+              </p>
+
+            </div>
+
+
+            <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-6">
+
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                High Risk
+              </p>
+
+              <p className="mt-3 text-3xl font-bold text-orange-400">
+                {highRiskCount}
+              </p>
+
+            </div>
+
+
+            <div className="rounded-2xl border border-green-500/20 bg-[#0d1726] p-6">
+
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Resolved
+              </p>
+
+              <p className="mt-3 text-3xl font-bold text-green-400">
+                {resolvedCount}
               </p>
 
             </div>
@@ -1285,504 +1018,776 @@ function OfficialDashboard() {
           </div>
 
 
-          {/* RECOMMENDED ACTIONS */}
+          {/* RISK DISTRIBUTION */}
 
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
+          <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-7">
+
+            <h2 className="text-xl font-bold">
+              Risk Distribution
+            </h2>
+
+            <p className="mt-1 text-sm text-[#64748b]">
+              Current distribution of environmental
+              complaints.
+            </p>
 
 
-            <div className="rounded-2xl border border-red-500/20 bg-[#08121f] p-5">
+            <div className="mt-8 space-y-5">
 
-              <div className="text-2xl">
-                🚨
+              {/* CRITICAL */}
+
+              <div>
+
+                <div className="mb-2 flex justify-between">
+
+                  <span className="text-sm">
+                    Critical
+                  </span>
+
+                  <span className="text-sm text-red-400">
+                    {criticalCount}
+                  </span>
+
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-[#08121f]">
+
+                  <div
+                    className="h-full rounded-full bg-red-500"
+                    style={{
+                      width:
+                        reports.length
+                          ? `${Math.min(
+                              100,
+                              (criticalCount /
+                                reports.length) *
+                                100
+                            )}%`
+                          : "0%",
+                    }}
+                  />
+
+                </div>
+
               </div>
 
-              <h3 className="mt-4 font-bold">
-                Dispatch Inspection
-              </h3>
 
-              <p className="mt-2 text-sm leading-6 text-[#64748b]">
-                Send an inspection team to verify critical pollution incidents.
-              </p>
+              {/* HIGH */}
 
-            </div>
+              <div>
 
+                <div className="mb-2 flex justify-between">
 
-            <div className="rounded-2xl border border-orange-500/20 bg-[#08121f] p-5">
+                  <span className="text-sm">
+                    High Risk
+                  </span>
 
-              <div className="text-2xl">
-                🔍
+                  <span className="text-sm text-orange-400">
+                    {highRiskCount}
+                  </span>
+
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-[#08121f]">
+
+                  <div
+                    className="h-full rounded-full bg-orange-500"
+                    style={{
+                      width:
+                        reports.length
+                          ? `${Math.min(
+                              100,
+                              (highRiskCount /
+                                reports.length) *
+                                100
+                            )}%`
+                          : "0%",
+                    }}
+                  />
+
+                </div>
+
               </div>
 
-              <h3 className="mt-4 font-bold">
-                Verify Source
-              </h3>
 
-              <p className="mt-2 text-sm leading-6 text-[#64748b]">
-                Investigate the reported source and compare environmental conditions.
-              </p>
+              {/* UNDER REVIEW */}
 
-            </div>
+              <div>
 
+                <div className="mb-2 flex justify-between">
 
-            <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#08121f] p-5">
+                  <span className="text-sm">
+                    Under Review
+                  </span>
 
-              <div className="text-2xl">
-                📡
+                  <span className="text-sm text-purple-400">
+                    {underReviewCount}
+                  </span>
+
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-[#08121f]">
+
+                  <div
+                    className="h-full rounded-full bg-purple-500"
+                    style={{
+                      width:
+                        reports.length
+                          ? `${Math.min(
+                              100,
+                              (underReviewCount /
+                                reports.length) *
+                                100
+                            )}%`
+                          : "0%",
+                    }}
+                  />
+
+                </div>
+
               </div>
 
-              <h3 className="mt-4 font-bold">
-                Monitor Area
-              </h3>
 
-              <p className="mt-2 text-sm leading-6 text-[#64748b]">
-                Continue monitoring the affected area for changes in pollution risk.
-              </p>
+              {/* RESOLVED */}
+
+              <div>
+
+                <div className="mb-2 flex justify-between">
+
+                  <span className="text-sm">
+                    Resolved
+                  </span>
+
+                  <span className="text-sm text-green-400">
+                    {resolvedCount}
+                  </span>
+
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-[#08121f]">
+
+                  <div
+                    className="h-full rounded-full bg-green-500"
+                    style={{
+                      width:
+                        reports.length
+                          ? `${Math.min(
+                              100,
+                              (resolvedCount /
+                                reports.length) *
+                                100
+                            )}%`
+                          : "0%",
+                    }}
+                  />
+
+                </div>
+
+              </div>
 
             </div>
 
           </div>
 
-        </div>
 
+          {/* ANALYSIS MESSAGE */}
 
-        {/* =================================================
-            COMPLAINT RESPONSE LIST
-        ================================================= */}
+          <div className="mt-7 rounded-3xl border border-[#38bdf8]/20 bg-[#0d1726] p-7">
 
-        <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
-
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-
-            <div>
-
-              <h2 className="text-xl font-bold">
-                Complaint Response Management
-              </h2>
-
-              <p className="mt-1 text-sm text-[#64748b]">
-                Change the status of citizen complaints from this page.
-              </p>
-
-            </div>
-
-            <span className="rounded-lg bg-[#08121f] px-4 py-2 text-sm text-[#20e0c0]">
-              {activeIncidents} Active
-            </span>
-
-          </div>
-
-
-          {reports.length === 0 ? (
-
-            <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-10 text-center">
+            <div className="flex gap-4">
 
               <div className="text-4xl">
-                📋
+                🤖
               </div>
 
-              <p className="mt-4 font-semibold">
-                No complaints available
-              </p>
+              <div>
 
-              <p className="mt-2 text-sm text-[#64748b]">
-                New citizen reports will appear here.
-              </p>
+                <h2 className="text-xl font-bold">
+                  AI Risk Analysis
+                </h2>
+
+                <p className="mt-2 max-w-3xl text-sm leading-7 text-[#94a3b8]">
+                  AI analysis can combine citizen
+                  observations, environmental data
+                  and pollution measurements to
+                  identify emerging risks and help
+                  officials prioritize incidents.
+                </p>
+
+              </div>
 
             </div>
 
-          ) : (
+          </div>
 
-            <div className="mt-6 space-y-5">
+        </div>
 
-              {reports
-                .slice()
-                .reverse()
-                .map((report) => {
+      )
 
-                  const reportId =
-                    report.id ||
-                    report.complaintId
-
-                  const currentStatus =
-                    report.status ||
-                    "Pending"
-
-                  return (
-
-                    <div
-                      key={reportId}
-                      className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-6"
-                    >
-
-                      {/* =================================================
-                          COMPLAINT HEADER
-                      ================================================= */}
-
-                      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-
-                        <div>
-
-                          <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                            COMPLAINT ID
-                          </p>
-
-                          <p className="mt-2 text-xl font-bold text-[#20e0c0]">
-                            {reportId}
-                          </p>
-
-                          <p className="mt-4 font-semibold">
-                            {getReportType(report)}
-                          </p>
-
-                          <p className="mt-2 text-sm text-[#64748b]">
-                            📍 {report.location ||
-                              "Location unavailable"}
-                          </p>
-
-                        </div>
+    }
 
 
-                        <span
-                          className={`w-fit rounded-full border px-4 py-2 text-sm font-semibold ${getStatusClass(
-                            currentStatus
-                          )}`}
-                        >
-                          {currentStatus}
-                        </span>
+  // =========================================================
+  // RESPOND VIEW
+  // =========================================================
 
-                      </div>
+  const renderRespond =
+    () => {
 
+      return (
 
-                      {/* =================================================
-                          DETAILS
-                      ================================================= */}
+        <div>
 
-                      <div className="mt-6 grid gap-5 border-t border-[#1e3445] pt-6 md:grid-cols-3">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
+            RESPOND
+          </p>
 
+          <h1 className="mt-3 text-4xl font-bold">
+            Incident Response Center
+          </h1>
 
-                        <div>
-
-                          <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                            CITIZEN
-                          </p>
-
-                          <p className="mt-2 font-semibold">
-                            {report.userName ||
-                              "Public User"}
-                          </p>
-
-                        </div>
+          <p className="mt-3 max-w-2xl text-lg text-[#94a3b8]">
+            Review public complaints, prioritize
+            incidents and update response status.
+          </p>
 
 
-                        <div>
+          {/* RESPONSE SUMMARY */}
 
-                          <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                            EMAIL
-                          </p>
+          <div className="mt-8 grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
 
-                          <p className="mt-2 break-all font-semibold">
-                            {report.email ||
-                              report.userEmail ||
-                              "Not available"}
-                          </p>
+            <div className="rounded-2xl border border-[#38bdf8]/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Total Reports
+              </p>
+              <p className="mt-2 text-2xl font-bold text-[#38bdf8]">
+                {reports.length}
+              </p>
+            </div>
 
-                        </div>
+            <div className="rounded-2xl border border-red-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Critical
+              </p>
+              <p className="mt-2 text-2xl font-bold text-red-400">
+                {criticalCount}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-orange-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                High Risk
+              </p>
+              <p className="mt-2 text-2xl font-bold text-orange-400">
+                {highRiskCount}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-yellow-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Moderate
+              </p>
+              <p className="mt-2 text-2xl font-bold text-yellow-400">
+                {moderateCount}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Low Risk
+              </p>
+              <p className="mt-2 text-2xl font-bold text-emerald-400">
+                {lowRiskCount}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-purple-500/20 bg-[#0d1726] p-4">
+              <p className="text-xs uppercase tracking-wider text-[#64748b]">
+                Under Review
+              </p>
+              <p className="mt-2 text-2xl font-bold text-purple-400">
+                {underReviewCount}
+              </p>
+            </div>
+
+          </div>
 
 
-                        <div>
+          {/* FILTERS & SEARCH TOOLBAR */}
+          <div className="mt-7 rounded-2xl border border-[#1e3445] bg-[#0d1726] p-5">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              {/* Search bar */}
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="Search by ID, location, description, or type..."
+                  value={reportSearchQuery}
+                  onChange={(e) => setReportSearchQuery(e.target.value)}
+                  className="w-full rounded-xl border border-[#1e3445] bg-[#08121f] px-4 py-2.5 pl-9 text-xs text-white placeholder-[#64748b] focus:border-[#38bdf8] focus:outline-none"
+                />
+                <span className="absolute left-3 top-2.5 text-xs text-[#64748b]">🔍</span>
+                {reportSearchQuery && (
+                  <button
+                    onClick={() => setReportSearchQuery("")}
+                    className="absolute right-3 top-2.5 text-xs text-[#64748b] hover:text-white"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
 
-                          <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                            SUBMITTED
-                          </p>
+              {/* Refresh Button */}
+              <button
+                onClick={loadReports}
+                disabled={reportsLoading}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-[#1e3445] bg-[#08121f] px-4 py-2.5 text-xs font-semibold text-[#38bdf8] hover:border-[#38bdf8] transition disabled:opacity-50"
+              >
+                <span>🔄</span>
+                <span>{reportsLoading ? "Refreshing..." : "Refresh Reports"}</span>
+              </button>
+            </div>
 
-                          <p className="mt-2 font-semibold">
-                            {report.submittedAt ||
-                              report.createdAt ||
-                              "Not available"}
-                          </p>
+            {/* Filter Pills */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-[#1e3445]">
+              {/* Risk Filter */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-[#64748b] mr-1">Risk Level:</span>
+                {["All", "Low", "Moderate", "High", "Critical"].map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => setReportRiskFilter(lvl)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                      reportRiskFilter === lvl
+                        ? "bg-[#38bdf8] text-[#050b14] font-bold"
+                        : "bg-[#08121f] text-[#94a3b8] border border-[#1e3445] hover:text-white"
+                    }`}
+                  >
+                    {lvl === "Low" ? "🟢 Low" : lvl === "Moderate" ? "🟡 Moderate" : lvl === "High" ? "🟠 High" : lvl === "Critical" ? "🔴 Critical" : "All"}
+                  </button>
+                ))}
+              </div>
 
-                        </div>
-
-                      </div>
-
-
-                      {/* =================================================
-                          DESCRIPTION
-                      ================================================= */}
-
-                      <div className="mt-6 border-t border-[#1e3445] pt-6">
-
-                        <p className="text-xs uppercase tracking-wider text-[#64748b]">
-                          DESCRIPTION
-                        </p>
-
-                        <p className="mt-3 leading-7 text-[#cbd5e1]">
-                          {report.description ||
-                            "No description provided."}
-                        </p>
-
-                      </div>
+              {/* Status Filter */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-[#64748b] mr-1">Status:</span>
+                {["All", "Under Review", "Pending", "In Progress", "Resolved"].map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setReportStatusFilter(st)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                      reportStatusFilter === st
+                        ? "bg-[#38bdf8] text-[#050b14] font-bold"
+                        : "bg-[#08121f] text-[#94a3b8] border border-[#1e3445] hover:text-white"
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
 
-                      {/* =================================================
-                          CHANGE STATUS
-                      ================================================= */}
+          {/* INCIDENT LIST */}
 
-                      <div className="mt-6 border-t border-[#1e3445] pt-6">
+          <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-6">
 
-                        <div className="flex flex-col gap-4 md:flex-row md:items-end">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
-                          <div className="flex-1">
+              <div>
 
-                            <label className="mb-2 block text-sm font-semibold">
-                              Update Complaint Status
-                            </label>
+                <h2 className="text-xl font-bold">
+                  Citizen Complaints & Incident Reports
+                </h2>
 
-                            <select
-                              value={currentStatus}
-                              onChange={(e) =>
-                                updateStatus(
-                                  reportId,
-                                  e.target.value
-                                )
-                              }
-                              className="w-full rounded-xl border border-[#1e3445] bg-[#0d1726] px-4 py-3 text-white outline-none transition focus:border-[#20e0c0]"
-                            >
+                <p className="mt-1 text-sm text-[#64748b]">
+                  Showing {filteredCitizenReports.length} of {reports.length} verified citizen submissions.
+                </p>
 
-                              {statuses.map(
-                                (status) => (
+              </div>
 
-                                  <option
-                                    key={status}
-                                    value={status}
-                                  >
-                                    {status}
-                                  </option>
+              <div className="flex items-center gap-2">
+                {(reportRiskFilter !== "All" || reportStatusFilter !== "All" || reportSearchQuery) && (
+                  <button
+                    onClick={() => {
+                      setReportRiskFilter("All")
+                      setReportStatusFilter("All")
+                      setReportSearchQuery("")
+                    }}
+                    className="rounded-lg border border-[#1e3445] bg-[#08121f] px-3 py-1.5 text-xs text-[#94a3b8] hover:text-white"
+                  >
+                    Reset Filters
+                  </button>
+                )}
+                <div className="rounded-lg bg-[#08121f] px-4 py-2 text-xs font-semibold text-[#38bdf8] border border-[#1e3445]">
+                  {filteredCitizenReports.length} Shown
+                </div>
+              </div>
 
-                                )
+            </div>
+
+
+            {reports.length === 0 ? (
+
+              <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-12 text-center">
+
+                <div className="text-5xl">
+                  📋
+                </div>
+
+                <p className="mt-4 font-semibold">
+                  No citizen complaints registered
+                </p>
+
+                <p className="mt-2 text-sm text-[#64748b]">
+                  Public pollution complaints will appear here automatically when submitted.
+                </p>
+
+              </div>
+
+            ) : filteredCitizenReports.length === 0 ? (
+
+              <div className="mt-6 rounded-2xl border border-[#1e3445] bg-[#08121f] p-12 text-center">
+
+                <div className="text-4xl">
+                  🔍
+                </div>
+
+                <p className="mt-3 font-semibold text-white">
+                  No reports match the selected filters
+                </p>
+
+                <p className="mt-2 text-sm text-[#64748b]">
+                  Try adjusting or resetting your risk level, status, or search query.
+                </p>
+
+                <button
+                  onClick={() => {
+                    setReportRiskFilter("All")
+                    setReportStatusFilter("All")
+                    setReportSearchQuery("")
+                  }}
+                  className="mt-4 rounded-xl bg-[#38bdf8] px-4 py-2 text-xs font-bold text-[#050b14]"
+                >
+                  Show All Reports
+                </button>
+
+              </div>
+
+            ) : (
+
+              <div className="mt-6 space-y-4">
+
+                {[...filteredCitizenReports]
+                  .sort((a, b) => {
+                    const riskOrder = {
+                      Critical: 4,
+                      High: 3,
+                      Moderate: 2,
+                      Low: 1,
+                      Unknown: 0,
+                    }
+                    const diff = (riskOrder[b.risk] || 0) - (riskOrder[a.risk] || 0)
+                    if (diff !== 0) return diff
+                    return (b.id || 0) - (a.id || 0)
+                  })
+                  .map((report) => {
+                    const reportType = getReportType(report)
+                    const reportEmail = getReportEmail(report)
+                    const reportDate = getReportDate(report)
+                    const currentStatus = report.status || "Pending"
+                    const rRisk = report.risk || "Low"
+
+                    return (
+
+                      <div
+                        key={report.id}
+                        className="rounded-2xl border border-[#1e3445] bg-[#08121f] p-5 transition hover:border-[#38bdf8]/40"
+                      >
+
+                        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+
+                          {/* INCIDENT INFO */}
+
+                          <div className="min-w-0 flex-1">
+
+                            <div className="flex flex-wrap items-center gap-3">
+
+                              <span className="rounded-md bg-[#0d1726] px-3 py-1 font-mono text-xs font-bold text-[#38bdf8] border border-[#1e3445]">
+                                #{report.id}
+                              </span>
+
+                              <span
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusStyle(
+                                  currentStatus
+                                )}`}
+                              >
+                                {currentStatus}
+                              </span>
+
+                              <span
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                  rRisk === "Critical"
+                                    ? "border-red-500/30 bg-red-500/10 text-red-400"
+                                    : rRisk === "High"
+                                    ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
+                                    : rRisk === "Moderate"
+                                    ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                                }`}
+                              >
+                                {rRisk === "Critical"
+                                  ? "🔴 Critical Risk"
+                                  : rRisk === "High"
+                                  ? "🟠 High Risk"
+                                  : rRisk === "Moderate"
+                                  ? "🟡 Moderate Risk"
+                                  : "🟢 Low Risk"}
+                              </span>
+
+                            </div>
+
+
+                            <h3 className="mt-3 text-lg font-bold text-white">
+                              {reportType}
+                            </h3>
+
+
+                            <p className="mt-1.5 text-sm text-[#cbd5e1] flex items-center gap-1.5">
+                              <span className="text-[#38bdf8]">📍</span>
+                              <span className="font-medium">{report.location || "Location not specified"}</span>
+                            </p>
+
+
+                            {/* CITIZEN DESCRIPTION */}
+                            {report.description && (
+                              <div className="mt-3 rounded-xl border border-[#1e3445] bg-[#0d1726] p-3 text-xs">
+                                <span className="font-semibold text-[#64748b] block mb-1">
+                                  Citizen Report Description:
+                                </span>
+                                <p className="text-[#e2e8f0] italic leading-relaxed">
+                                  "{report.description}"
+                                </p>
+                              </div>
+                            )}
+
+
+                            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[#64748b]">
+                              <span>👤 {report.userName || "Public User"}</span>
+                              {reportEmail && reportEmail !== "No email" && (
+                                <span>✉️ {reportEmail}</span>
                               )}
-
-                            </select>
+                              <span>🕒 {reportDate}</span>
+                            </div>
 
                           </div>
 
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateStatus(
-                                reportId,
-                                "Resolved"
-                              )
-                            }
-                            disabled={
-                              currentStatus ===
-                              "Resolved"
-                            }
-                            className="rounded-xl bg-[#00bfa6] px-6 py-3 font-semibold text-[#02120f] transition hover:bg-[#20e0c0] disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {currentStatus ===
-                            "Resolved"
-                              ? "✓ Resolved"
-                              : "Mark Resolved"}
-                          </button>
+                          {/* RESPONSE ACTIONS & STATUS */}
 
-                        </div>
+                          <div className="flex flex-col gap-3 w-full lg:w-56 shrink-0">
 
-                      </div>
+                            <button
+                              onClick={() => setSelectedReport(report)}
+                              className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#38bdf8]/40 bg-[#38bdf8]/10 px-4 py-2.5 text-xs font-bold text-[#38bdf8] hover:bg-[#38bdf8]/20 transition"
+                            >
+                              <span>🔍</span>
+                              <span>View Full Details</span>
+                            </button>
 
+                            <div>
+                              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-[#64748b]">
+                                Investigation Status
+                              </label>
 
-                      {/* =================================================
-                          PROGRESS
-                      ================================================= */}
-
-                      <div className="mt-7 border-t border-[#1e3445] pt-6">
-
-                        <p className="text-sm font-semibold">
-                          Complaint Progress
-                        </p>
-
-
-                        <div className="mt-5 grid grid-cols-4 gap-2">
-
-                          {statuses.map(
-                            (status, index) => {
-
-                              const currentIndex =
-                                statuses.indexOf(
+                              <select
+                                value={currentStatus}
+                                onChange={(e) =>
+                                  handleStatusChange(
+                                    report.id,
+                                    e.target.value
+                                  )
+                                }
+                                className={`w-full rounded-xl border bg-[#0d1726] px-3 py-2 text-xs font-semibold outline-none transition ${getStatusStyle(
                                   currentStatus
-                                )
+                                )}`}
+                              >
 
-                              const isCompleted =
-                                index <=
-                                currentIndex
+                                <option value="Under Review">
+                                  Under Review
+                                </option>
 
-                              const isCurrent =
-                                index ===
-                                currentIndex
+                                <option value="Pending">
+                                  Pending
+                                </option>
 
-                              return (
+                                <option value="In Progress">
+                                  In Progress
+                                </option>
 
-                                <button
-                                  key={status}
-                                  type="button"
-                                  onClick={() =>
-                                    updateStatus(
-                                      reportId,
-                                      status
-                                    )
-                                  }
-                                  className="text-center"
-                                >
+                                <option value="Resolved">
+                                  Resolved
+                                </option>
 
-                                  <div
-                                    className={`mx-auto flex h-9 w-9 items-center justify-center rounded-full border transition hover:scale-110 ${
-                                      isCompleted
-                                        ? "border-[#20e0c0] bg-[#20e0c0] text-[#02120f]"
-                                        : "border-[#1e3445] bg-[#0d1726] text-[#64748b]"
-                                    } ${
-                                      isCurrent
-                                        ? "ring-2 ring-[#20e0c0]/30"
-                                        : ""
-                                    }`}
-                                  >
-                                    {isCompleted
-                                      ? "✓"
-                                      : index + 1}
-                                  </div>
+                              </select>
+                            </div>
 
-                                  <p
-                                    className={`mt-2 text-[11px] ${
-                                      isCompleted
-                                        ? "text-[#20e0c0]"
-                                        : "text-[#64748b]"
-                                    }`}
-                                  >
-                                    {status}
-                                  </p>
-
-                                </button>
-
-                              )
-
-                            }
-                          )}
+                          </div>
 
                         </div>
 
                       </div>
 
+                    )
 
-                      {/* =================================================
-                          LAST UPDATED
-                      ================================================= */}
+                  }
+                )}
 
-                      {report.updatedAt && (
+              </div>
 
-                        <p className="mt-5 text-xs text-[#64748b]">
-                          Last updated: {report.updatedAt}
-                        </p>
+            )}
 
-                      )}
+          </div>
 
-                    </div>
 
-                  )
+          {/* RESPONSE WORKFLOW */}
 
-                })}
+          <div className="mt-7 rounded-3xl border border-[#1e3445] bg-[#0d1726] p-7">
+
+            <h2 className="text-xl font-bold">
+              Recommended Response Workflow
+            </h2>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-4">
+
+              <div className="rounded-xl border border-[#1e3445] bg-[#08121f] p-5">
+
+                <p className="text-2xl">
+                  🔎
+                </p>
+
+                <p className="mt-3 font-semibold">
+                  Detect
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-[#64748b]">
+                  Identify incoming pollution
+                  complaints.
+                </p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-[#1e3445] bg-[#08121f] p-5">
+
+                <p className="text-2xl">
+                  🤖
+                </p>
+
+                <p className="mt-3 font-semibold">
+                  Analyse
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-[#64748b]">
+                  Assess risk and pollution
+                  conditions.
+                </p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-[#1e3445] bg-[#08121f] p-5">
+
+                <p className="text-2xl">
+                  🚨
+                </p>
+
+                <p className="mt-3 font-semibold">
+                  Prioritize
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-[#64748b]">
+                  Focus on incidents requiring
+                  immediate attention.
+                </p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-[#1e3445] bg-[#08121f] p-5">
+
+                <p className="text-2xl">
+                  ✅
+                </p>
+
+                <p className="mt-3 font-semibold">
+                  Resolve
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-[#64748b]">
+                  Track actions until the incident
+                  is resolved.
+                </p>
+
+              </div>
 
             </div>
 
-          )}
+          </div>
 
         </div>
 
-      </section>
-
-    )
-
-  }
-
-
-  // =====================================================
-  // PAGE TITLE
-  // =====================================================
-
-  const getPageTitle = () => {
-
-    if (view === "monitor") {
-      return "Environmental Monitoring"
-    }
-
-    if (view === "analyse") {
-      return "Pollution Analysis"
-    }
-
-    if (view === "respond") {
-      return "Response Center"
-    }
-
-    return "Official Control Center"
-
-  }
-
-
-  // =====================================================
-  // PAGE DESCRIPTION
-  // =====================================================
-
-  const getPageDescription = () => {
-
-    if (view === "monitor") {
-
-      return (
-        "Monitor complaint activity, response progress, and environmental incidents."
       )
 
     }
 
-    if (view === "analyse") {
 
-      return (
-        "Analyse pollution reports, identify risk patterns, and understand environmental conditions."
-      )
+  // =========================================================
+  // SELECT CORRECT VIEW
+  // =========================================================
 
+  const renderContent = () => {
+
+    if (
+      view === "monitor"
+    ) {
+      return renderMonitor()
     }
 
-    if (view === "respond") {
-
-      return (
-        "Prioritize incidents, coordinate response actions, and manage environmental complaints."
-      )
-
+    if (
+      view === "analyse"
+    ) {
+      return renderAnalyse()
     }
 
-    return (
-      "Monitor environmental conditions, review public complaints, and coordinate response actions."
-    )
+    if (
+      view === "respond"
+    ) {
+      return renderRespond()
+    }
+
+    return renderOverview()
 
   }
 
 
-  // =====================================================
-  // MAIN RETURN
-  // =====================================================
+  // =========================================================
+  // MAIN PAGE
+  // =========================================================
 
   return (
 
     <div className="min-h-screen bg-[#050b14] text-white">
 
-
-      {/* =================================================
+      {/* ===================================================
           TOP BAR
-      ================================================= */}
+      ==================================================== */}
 
       <header className="flex h-20 items-center justify-between border-b border-[#1e3445] bg-[#08121f] px-6">
 
         {/* HAMBURGER */}
 
         <button
-          type="button"
           onClick={() =>
             setSidebarOpen(true)
           }
@@ -1790,7 +1795,9 @@ function OfficialDashboard() {
         >
 
           <span className="h-0.5 w-5 bg-white" />
+
           <span className="h-0.5 w-5 bg-white" />
+
           <span className="h-0.5 w-5 bg-white" />
 
         </button>
@@ -1798,7 +1805,14 @@ function OfficialDashboard() {
 
         {/* LOGO */}
 
-        <div className="font-bold">
+        <button
+          onClick={() =>
+            changeView(
+              "overview"
+            )
+          }
+          className="font-bold"
+        >
 
           <span className="text-[#38bdf8]">
             Aero
@@ -1806,10 +1820,10 @@ function OfficialDashboard() {
 
           Shield
 
-        </div>
+        </button>
 
 
-        {/* OFFICIAL */}
+        {/* OFFICIAL NAME */}
 
         <div className="text-right">
 
@@ -1818,7 +1832,7 @@ function OfficialDashboard() {
           </p>
 
           <p className="text-xs text-[#64748b]">
-            Environmental Official
+            Official
           </p>
 
         </div>
@@ -1826,81 +1840,37 @@ function OfficialDashboard() {
       </header>
 
 
-      {/* =================================================
+      {/* ===================================================
           SIDEBAR
-      ================================================= */}
+      ==================================================== */}
 
       <Sidebar
         role="official"
         open={sidebarOpen}
-        setOpen={setSidebarOpen}
-        activeSection={view}
-        setActiveSection={() => {}}
+        setOpen={
+          setSidebarOpen
+        }
       />
 
 
-      {/* =================================================
-          MAIN CONTENT
-      ================================================= */}
+      {/* ===================================================
+          MAIN
+      ==================================================== */}
 
-      <main className="mx-auto max-w-7xl px-6 py-10 lg:px-10">
+      <main className="mx-auto max-w-7xl px-6 py-10">
 
-
-        {/* PAGE HEADER */}
-
-        {view !== "overview" && (
-
-          <>
-
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#38bdf8]">
-              {getPageTitle()}
-            </p>
-
-            <h1 className="mt-3 text-4xl font-bold sm:text-5xl">
-              {getPageTitle()}
-            </h1>
-
-            <p className="mt-3 max-w-3xl text-lg leading-8 text-[#94a3b8]">
-              {getPageDescription()}
-            </p>
-
-          </>
-
-        )}
-
-
-        {/* =================================================
-            OVERVIEW
-        ================================================= */}
-
-        {view === "overview" &&
-          renderOverview()}
-
-
-        {/* =================================================
-            MONITOR
-        ================================================= */}
-
-        {view === "monitor" &&
-          renderMonitor()}
-
-
-        {/* =================================================
-            ANALYSE
-        ================================================= */}
-
-        {view === "analyse" &&
-          renderAnalyse()}
-
-
-        {/* =================================================
-            RESPOND
-        ================================================= */}
-
-        {view === "respond" &&
-          renderRespond()}
+        {renderContent()}
 
       </main>
+
+      {/* CITIZEN REPORT DETAILS MODAL */}
+      {selectedReport && (
+        <CitizenReportDetailsModal
+          report={selectedReport}
+          onClose={() => setSelectedReport(null)}
+          onUpdateStatus={handleStatusChange}
+        />
+      )}
 
     </div>
 
